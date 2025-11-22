@@ -17,7 +17,7 @@ import { ArrowLeft, MapPin, Navigation, RefreshCw, Play, Pause, Trash2 } from 'l
 import { useLocalSearchParams, router } from 'expo-router';
 import * as Location from 'expo-location';
 import { useLocationTracking } from '../services/location-service';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { WebView } from "react-native-webview";
 
 const { width, height } = Dimensions.get('window');
 const ASPECT_RATIO = width / height;
@@ -214,6 +214,64 @@ export default function MapScreen() {
     }
   };
 
+  const generateMapHtml = ({
+    currentLocation,
+    restaurant,
+    routeCoordinates,
+    movementPath,
+  }) => {
+    const data = {
+      currentLocation: currentLocation || null,
+      restaurant: restaurant || null,
+      routeCoordinates: routeCoordinates || [],
+      movementPath: movementPath || [],
+    };
+
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <style>html,body,#map{height:100%;margin:0;padding:0}</style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script>
+        const data = ${JSON.stringify(data)};
+        const startLat = data.currentLocation ? data.currentLocation.latitude : (data.restaurant ? data.restaurant.lat : 0);
+        const startLng = data.currentLocation ? data.currentLocation.longitude : (data.restaurant ? data.restaurant.lng : 0);
+        const map = L.map('map').setView([startLat, startLng], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        if (data.currentLocation) {
+          L.marker([data.currentLocation.latitude, data.currentLocation.longitude]).addTo(map).bindPopup('You are here');
+        }
+
+        if (data.restaurant) {
+          L.marker([data.restaurant.lat, data.restaurant.lng]).addTo(map).bindPopup('Destination');
+        }
+
+        if (data.routeCoordinates && data.routeCoordinates.length > 0) {
+          const latlngs = data.routeCoordinates.map(p => [p.latitude, p.longitude]);
+          L.polyline(latlngs, { color: '#1E40AF', weight: 4 }).addTo(map);
+          map.fitBounds(latlngs);
+        } else if (data.currentLocation && data.restaurant) {
+          map.fitBounds([[data.currentLocation.latitude, data.currentLocation.longitude], [data.restaurant.lat, data.restaurant.lng]]);
+        }
+
+        if (data.movementPath && data.movementPath.length > 0) {
+          const mp = data.movementPath.map(p => [p.latitude, p.longitude]);
+          L.polyline(mp, { color: '#10B981', weight: 3 }).addTo(map);
+        }
+      </script>
+    </body>
+    </html>`;
+  };
+
   const toggleTracking = () => {
     if (isTrackingMovement) {
       setIsTrackingMovement(false);
@@ -300,7 +358,10 @@ export default function MapScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <ArrowLeft color="#1F2937" size={24} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Navigation</Text>
@@ -311,41 +372,35 @@ export default function MapScreen() {
 
       {/* Map */}
       <View style={styles.mapContainer}>
-        {Platform.OS === 'web' ? (
+        {Platform.OS === "web" ? (
           <iframe
             title="Map"
             src={`https://www.openstreetmap.org/export/embed.html?bbox=${
               Math.min(currentLocation.longitude, restaurant.lng) - 0.02
             },${Math.min(currentLocation.latitude, restaurant.lat) - 0.02},${
               Math.max(currentLocation.longitude, restaurant.lng) + 0.02
-            },${Math.max(currentLocation.latitude, restaurant.lat) + 0.02}&layer=mapnik&marker=${currentLocation.latitude},${currentLocation.longitude}&marker=${restaurant.lat},${restaurant.lng}`}
-            style={{ width: '100%', height: '100%', border: 0 }}
+            },${
+              Math.max(currentLocation.latitude, restaurant.lat) + 0.02
+            }&layer=mapnik&marker=${currentLocation.latitude},${
+              currentLocation.longitude
+            }&marker=${restaurant.lat},${restaurant.lng}`}
+            style={{ width: "100%", height: "100%", border: 0 }}
           />
         ) : (
-          <MapView
-            ref={mapRef}
-            style={styles.nativeMapContainer}
-            provider={PROVIDER_GOOGLE}
-            showsUserLocation
-            showsMyLocationButton
-            initialRegion={{
-              latitude: (currentLocation.latitude + restaurant.lat) / 2,
-              longitude: (currentLocation.longitude + restaurant.lng) / 2,
-              latitudeDelta: Math.abs(currentLocation.latitude - restaurant.lat) * 3 || 0.02,
-              longitudeDelta: Math.abs(currentLocation.longitude - restaurant.lng) * 3 * ASPECT_RATIO || 0.02,
+          <WebView
+            originWhitelist={["*"]}
+            source={{
+              html: generateMapHtml({
+                currentLocation,
+                restaurant,
+                routeCoordinates,
+                movementPath,
+              }),
             }}
-          >
-            <Marker coordinate={currentLocation} title="You are here" pinColor="#1E40AF" />
-            <Marker coordinate={{ latitude: restaurant.lat, longitude: restaurant.lng }} title={restaurant.name || 'Restaurant'} pinColor="#EF4444" />
-
-            {routeCoordinates.length > 0 && (
-              <Polyline coordinates={routeCoordinates} strokeColor="#1E40AF" strokeWidth={4} />
-            )}
-
-            {movementPath.length > 1 && (
-              <Polyline coordinates={movementPath} strokeColor="#10B981" strokeWidth={3} lineDashPattern={[5, 5]} />
-            )}
-          </MapView>
+            style={styles.nativeMapContainer}
+            javaScriptEnabled
+            domStorageEnabled
+          />
         )}
 
         {isLoadingRoute && (
@@ -358,7 +413,10 @@ export default function MapScreen() {
 
       {/* Bottom Panel */}
       <View style={styles.infoPanel}>
-        <LinearGradient colors={['#FFFFFF', '#F8FAFC']} style={styles.infoGradient}>
+        <LinearGradient
+          colors={["#FFFFFF", "#F8FAFC"]}
+          style={styles.infoGradient}
+        >
           <View style={styles.infoContent}>
             {/* Distance & ETA */}
             <View style={styles.statsRow}>
@@ -374,20 +432,52 @@ export default function MapScreen() {
 
             {/* Action Buttons */}
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.actionButton} onPress={toggleTracking}>
-                {isTrackingMovement ? <Pause color="#DC2626" size={20} /> : <Play color="#10B981" size={20} />}
-                <Text style={[styles.actionText, isTrackingMovement && styles.activeText]}>
-                  {isTrackingMovement ? 'Stop' : 'Track'} Path
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={toggleTracking}
+              >
+                {isTrackingMovement ? (
+                  <Pause color="#DC2626" size={20} />
+                ) : (
+                  <Play color="#10B981" size={20} />
+                )}
+                <Text
+                  style={[
+                    styles.actionText,
+                    isTrackingMovement && styles.activeText,
+                  ]}
+                >
+                  {isTrackingMovement ? "Stop" : "Track"} Path
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionButton} onPress={clearPath} disabled={movementPath.length === 0}>
-                <Trash2 color={movementPath.length > 0 ? "#EF4444" : "#9CA3AF"} size={20} />
-                <Text style={[styles.actionText, movementPath.length > 0 && styles.dangerText]}>Clear</Text>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={clearPath}
+                disabled={movementPath.length === 0}
+              >
+                <Trash2
+                  color={movementPath.length > 0 ? "#EF4444" : "#9CA3AF"}
+                  size={20}
+                />
+                <Text
+                  style={[
+                    styles.actionText,
+                    movementPath.length > 0 && styles.dangerText,
+                  ]}
+                >
+                  Clear
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.openMapsButton} onPress={openInMaps}>
-                <LinearGradient colors={['#1E40AF', '#1D4ED8']} style={styles.openMapsGradient}>
+              <TouchableOpacity
+                style={styles.openMapsButton}
+                onPress={openInMaps}
+              >
+                <LinearGradient
+                  colors={["#1E40AF", "#1D4ED8"]}
+                  style={styles.openMapsGradient}
+                >
                   <Navigation color="#FFFFFF" size={20} />
                   <Text style={styles.openMapsText}>Open in Maps</Text>
                 </LinearGradient>
