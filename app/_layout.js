@@ -9,14 +9,17 @@ import "../firebase"; // Initialize Firebase
  
 SplashScreen.preventAutoHideAsync();
  
-// Configure QueryClient for better performance
+// Configure QueryClient for production with aggressive caching
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60000, // 1 minute
-      cacheTime: 300000, // 5 minutes
+      staleTime: 1000 * 60 * 30, // 30 minutes - data considered fresh
+      gcTime: 1000 * 60 * 60 * 24, // 24 hours - cache garbage collection
       retry: 2,
       refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     },
   },
 });

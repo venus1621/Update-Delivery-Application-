@@ -1,5 +1,30 @@
-
+node_modules/
+.expo/
+.expo-shared/
+dist/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+.DS_Store
+*.log
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.local/
+package-lock.json
+yarn.lock
 
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
 .env
+.env.local
+.env.production.local
+.env.development.local
