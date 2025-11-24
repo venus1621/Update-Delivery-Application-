@@ -15,7 +15,8 @@ import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 import { ref, update, push, set } from 'firebase/database';
 import { database, initFirebaseForActiveOrder, getSendDuration } from '../firebase';
-import { transformOrderLocations, transformOrdersLocations } from '../utils/location-utils';
+import { transformOrderLocations } from '../utils/location-utils';
+import { logger } from '../utils/logger';
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {
@@ -199,8 +200,8 @@ export const DeliveryProvider = ({ children }) => {
       }
       Vibration.cancel(); // Cancel any ongoing vibration
       
-    } catch (error) {
-      console.error('❌ Error stopping alarm:', error);
+    } catch (err) {
+      logger.error('❌ Error stopping alarm:', err);
     }
   }, []);
 
@@ -233,8 +234,8 @@ export const DeliveryProvider = ({ children }) => {
       // Start continuous vibration pattern
       startContinuousVibration();
       
-    } catch (error) {
-      console.error('❌ Error playing alarm:', error);
+    } catch (err) {
+      logger.error('❌ Error playing alarm:', err);
       // Fallback to continuous vibration only
       startContinuousVibration();
     }
@@ -306,8 +307,8 @@ export const DeliveryProvider = ({ children }) => {
         }, 3000);
       }
       
-    } catch (error) {
-      console.error('❌ Error playing notification sound:', error);
+    } catch (err) {
+      logger.error('❌ Error playing notification sound:', err);
       // Fallback to vibration only
       Vibration.vibrate([0, 400, 200, 400]);
     }
@@ -336,11 +337,12 @@ export const DeliveryProvider = ({ children }) => {
 
         // Start location tracking
         await locationService.startLocationTracking();
-      } catch (error) {
-        console.error('Error initializing location tracking:', error);
-        setState((prev) => ({ 
-          ...prev, 
-          locationError: error.message,
+      } catch (err) {
+        const message = err?.message || String(err) || 'Unknown error';
+        logger.error('Error initializing location tracking:', err);
+        setState(prev => ({
+          ...prev,
+          locationError: message,
           isLocationTracking: false
         }));
       }
@@ -429,8 +431,8 @@ export const DeliveryProvider = ({ children }) => {
           proximityNotifiedRef.current.delete(orderId);
         }
       }
-    } catch (error) {
-      console.error('❌ Error checking proximity:', error);
+    } catch (err) {
+      logger.error('❌ Error checking proximity:', err);
     }
   }, []);
 
@@ -468,7 +470,7 @@ export const DeliveryProvider = ({ children }) => {
 
         // ✅ Check if Firebase database is initialized
         if (!database) {
-          console.warn('⚠️ Firebase database not initialized, skipping location update');
+          logger.warn('⚠️ Firebase database not initialized, skipping location update');
           return;
         }
 
@@ -518,13 +520,13 @@ export const DeliveryProvider = ({ children }) => {
             update(deliveryGuyRef, cleanedLocationData),
             push(locationHistoryRef, cleanedHistoryEntry)
           ]);
-        } catch (error) {
+        } catch (err) {
           // Silently handle Firebase permission errors - they don't affect core functionality
-          if (error.message?.includes('PERMISSION_DENIED') || error.message?.includes('permission_denied')) {
+          if (err.message?.includes('PERMISSION_DENIED') || err.message?.includes('permission_denied')) {
             // Permission denied - Firebase rules may need updating on backend
             // This is expected if Firebase rules are not configured yet
           } else {
-            console.warn('⚠️ Could not update location in Firebase:', error.message);
+            logger.warn('⚠️ Could not update delivery guy location in Firebase:', err);
           }
         }
        
@@ -542,7 +544,7 @@ export const DeliveryProvider = ({ children }) => {
             const orderId = mongoId || order.orderId || order.orderCode;
             
             if (!orderId) {
-              console.warn('⚠️ Order missing _id, id, orderId and orderCode:', order);
+             logger.warn('⚠️ Order missing _id, id, orderId and orderCode:', order);
               return;
             }
             
@@ -645,13 +647,13 @@ export const DeliveryProvider = ({ children }) => {
              
               // Check proximity to destination and trigger alarm if close
               await checkProximityAndAlert(order, currentLocation, orderId);
-            } catch (error) {
+            } catch (err) {
               // Silently handle Firebase permission errors - they don't affect core functionality
-              if (error.message?.includes('PERMISSION_DENIED') || error.message?.includes('permission_denied')) {
+              if (err.message?.includes('PERMISSION_DENIED') || err.message?.includes('permission_denied')) {
                 // Permission denied - Firebase rules may need updating on backend
                 // This is expected if Firebase rules are not configured yet
               } else {
-                console.warn('⚠️ Could not update order location in Firebase:', orderId);
+               logger.warn('⚠️ Could not update order location in Firebase:', orderId);
               }
             }
           });
@@ -662,7 +664,7 @@ export const DeliveryProvider = ({ children }) => {
           }).catch(error => {
             // Silently handle Firebase permission errors
             if (!error.message?.includes('PERMISSION_DENIED') && !error.message?.includes('permission_denied')) {
-              console.warn('⚠️ Could not update location in Firebase batch');
+              logger.warn('⚠️ Could not update location in Firebase batch');
             }
           });
           
@@ -705,9 +707,10 @@ export const DeliveryProvider = ({ children }) => {
             ...prev,
             sendDurationInSeconds: sendDurationInSeconds || 3
           }));
-        } catch (error) {
-          console.error('❌ Failed to initialize Firebase for active order:', error);
-          console.error('Error details:', error.message);
+        } catch (err) {
+          const message = err?.message || String(err) || 'Unknown error';
+          logger.error('❌ Failed to initialize Firebase for active order:', err);
+          logger.error('Error details:', message);
           setState(prev => ({
             ...prev,
             locationError: 'Firebase connection failed - location tracking may not work'
@@ -729,9 +732,10 @@ export const DeliveryProvider = ({ children }) => {
       if (deliveringOrders.length > 0) {
         try {
           await sendOrderStatusToFirebase(deliveringOrders);
-        } catch (error) {
-          console.error('❌ Failed to send orders to Firebase:', error);
-          console.error('Error details:', error.message);
+        } catch (err) {
+          const message = err?.message || String(err) || 'Unknown error';
+          logger.error('❌ Failed to send orders to Firebase:', err);
+          logger.error('Error details:', message);
         }
       }
     };
@@ -940,7 +944,7 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
       const orderId = mongoId ? mongoId.toString() : (order.orderId || order.orderCode).toString();
       
       if (!orderId) {
-        console.warn('⚠️ Order missing ID, skipping Firebase update:', order);
+        logger.warn('⚠️ Order missing ID, skipping Firebase update:', order);
         continue;
       }
 
@@ -1023,10 +1027,10 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
       // Use set() for complete replacement to ensure structure is correct
       await set(orderRef, cleanedOrderData);
       
-    } catch (error) {
+    } catch (err) {
       // Silently handle Firebase errors
-      if (!error.message?.includes('PERMISSION_DENIED') && !error.message?.includes('permission_denied')) {
-        console.warn(`⚠️ Could not send order ${order.orderCode || 'unknown'} to Firebase`);
+      if (!err.message?.includes('PERMISSION_DENIED') && !err.message?.includes('permission_denied')) {
+        logger.warn(`⚠️ Could not send order ${order.orderCode || 'unknown'} to Firebase`);
       }
     }
   }
@@ -1052,9 +1056,15 @@ const fetchActiveOrder = useCallback(
         }
       );
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        throw new Error(`Failed to parse server response: ${jsonError?.message || jsonError?.toString() || 'Unknown error'}`);
+      }
       
-      if (response.ok && data.status === "success") {
+      console.log('Fetched active orders data:', data);
+      if (response.ok && data && data.status === "success") {
         // Transform locations and normalize active order data to handle MongoDB Decimal128
         const normalizedActiveOrders = Array.isArray(data.data) 
           ? data.data.map(order => {
@@ -1081,10 +1091,12 @@ const fetchActiveOrder = useCallback(
           activeOrder: normalizedActiveOrders.length > 0 ? normalizedActiveOrders : null,
         }));
       } else {
-        // Display server error message
-        const serverMessage = data.message || data.error || 
-                             (data.errors && data.errors[0]?.msg) || 
-                             "Failed to fetch orders";
+        // Display server error message - safely access properties
+        const serverMessage =
+          data?.message ||
+          data?.error ||
+          data?.errors?.[0]?.msg ||
+          "Failed to fetch orders";
         setState(prev => ({
           ...prev,
           isLoadingActiveOrder: false,
@@ -1092,11 +1104,11 @@ const fetchActiveOrder = useCallback(
         }));
       }
 
-    } catch (error) {
+    } catch (err) {
       // Check if it's a network error or something else
-      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+      const errorMessage = err?.message === 'Failed to fetch' || err?.message?.includes('Network request failed')
         ? "Unable to connect to server. Please check your internet connection."
-        : "Something went wrong. Please try again later.";
+        : (err?.message || "Something went wrong. Please try again later.");
       
       setState(prev => ({
         ...prev,
@@ -1147,13 +1159,27 @@ const fetchAllActiveOrders = useCallback(async (forceRefresh = false) => {
       ),
     ]);
     
-    const cookedData = await cookedResponse.json();
-    const deliveringData = await deliveringResponse.json();
+    // Safely parse JSON responses
+    let cookedData = null;
+    let deliveringData = null;
+    
+    try {
+      cookedData = await cookedResponse.json();
+    
+    } catch (jsonError) {
+      logger.error('Failed to parse cooked orders response:', jsonError);
+    }
+    
+    try {
+      deliveringData = await deliveringResponse.json();
+    } catch (jsonError) {
+      logger.error('Failed to parse delivering orders response:', jsonError);
+    }
     
     let allActiveOrders = [];
     
     // Process Cooked orders
-    if (cookedResponse.ok && cookedData.status === 'success' && Array.isArray(cookedData.data)) {
+    if (cookedResponse.ok && cookedData && cookedData.status === 'success' && Array.isArray(cookedData.data)) {
       const normalized = cookedData.data.map(order => {
         const transformedOrder = transformOrderLocations(order);
         return {
@@ -1166,7 +1192,7 @@ const fetchAllActiveOrders = useCallback(async (forceRefresh = false) => {
     }
     
     // Process Delivering orders
-    if (deliveringResponse.ok && deliveringData.status === 'success' && Array.isArray(deliveringData.data)) {
+    if (deliveringResponse.ok && deliveringData && deliveringData.status === 'success' && Array.isArray(deliveringData.data)) {
       const normalized = deliveringData.data.map(order => {
         const transformedOrder = transformOrderLocations(order);
         return {
@@ -1194,8 +1220,8 @@ const fetchAllActiveOrders = useCallback(async (forceRefresh = false) => {
     }));
     
     
-  } catch (error) {
-    console.error('❌ Error fetching all active orders:', error);
+  } catch (err) {
+    logger.error('❌ Error fetching all active orders:', err);
     setState(prev => ({
       ...prev,
       isLoadingActiveOrder: false,
@@ -1251,11 +1277,14 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
       }
     );
 
-
-
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (jsonError) {
+      throw new Error(`Failed to parse server response: ${jsonError?.message || jsonError?.toString() || 'Unknown error'}`);
+    }
  
-    if (response.ok && data.status === "success") {
+    if (response.ok && data && data.status === "success") {
       // ✅ Transform locations and normalize the response into a simple, clean list
       const normalizedOrders = data.data.map((order) => {
         const transformedOrder = transformOrderLocations(order);
@@ -1292,21 +1321,24 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
       }));
 
        } else {
-      // Display server error message
-      const serverMessage = data.message || data.error || 
-                           (data.errors && data.errors[0]?.msg) || 
-                           "Failed to fetch available orders";
+      // Display server error message - safely access properties
+      const serverMessage =
+        data?.message ||
+        data?.error ||
+        data?.errors?.[0]?.msg ||
+        "Failed to fetch available orders";
       setState((prev) => ({
         ...prev,
         isLoadingOrders: false,
         ordersError: serverMessage,
       }));
     }
-  } catch (error) {
+  } catch (err) {
     // Check if it's a network error or something else
-    const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+    logger.error('❌ Error fetching available orders:', err);
+    const errorMessage = err?.message === 'Failed to fetch' || err?.message?.includes('Network request failed')
       ? "Unable to connect to server. Please check your internet connection."
-      : "Something went wrong. Please try again later.";
+      : (err?.message || "Something went wrong. Please try again later.");
     
     setState((prev) => ({
       ...prev,
@@ -1392,7 +1424,7 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
 
         // Initialize Firebase tracking for the accepted order
         initializeOrderTracking(activeOrderData).catch(error => {
-          console.error('❌ Error initializing Firebase tracking:', error);
+          logger.error('❌ Error initializing Firebase tracking:', error);
         });
       
             // Calculate total earnings (handle MongoDB Decimal128 format)
@@ -1401,8 +1433,8 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
             const totalEarnings = deliveryFee + tip;
 
         // Immediately fetch active orders to update the state
-        fetchActiveOrder('Cooked').catch(e => console.error('Error fetching cooked orders:', e));
-        fetchActiveOrder('Delivering').catch(e => console.error('Error fetching delivering orders:', e));
+        fetchActiveOrder('Cooked').catch(e => logger.error('Error fetching cooked orders:', e));
+        fetchActiveOrder('Delivering').catch(e => logger.error('Error fetching delivering orders:', e));
 
         // Log success details to console (no blocking alert)
         
@@ -1476,8 +1508,8 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
           );
           resolve(false);
         }, 10000); // 10 second timeout
-      } catch (error) {
-        console.error("❌ Error accepting order:", error);
+      } catch (err) {
+        logger.error("❌ Error accepting order:", err);
             Alert.alert(
           "🌐 Connection Error",
           "❌ Unable to send order acceptance request.\n\n📶 Please check your connection and try again.",
@@ -1616,7 +1648,7 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
       }));
       
     } catch (error) {
-      console.error('❌ Error clearing delivery data:', error);
+      logger.error('❌ Error clearing delivery data:', error);
     }
   }, []);
 
@@ -1726,9 +1758,15 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       }
     );
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+      console.log(data);
+    } catch (jsonError) {
+      throw new Error(`Failed to parse server response: ${jsonError?.message || jsonError?.toString() || 'Unknown error'}`);
+    }
 
-    if (!response.ok || data?.status !== "success") {
+    if (!response.ok || !data || data.status !== "success") {
       throw new Error(data?.message || `HTTP ${response.status}: Failed to fetch orders`);
     }
 
@@ -1739,7 +1777,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
     const normalizedHistory = data.data
       .map((order) => {
         if (!order._id && !order.id) {
-          console.warn("Skipping invalid order:", order);
+          logger.warn("Skipping invalid order:", order);
           return null;
         }
 
@@ -1780,9 +1818,9 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       ...prev,
       isLoadingHistory: false,
       historyError:
-        error.message.includes("Failed to fetch")
+        error?.message?.includes("Failed to fetch")
           ? "Unable to connect to server. Please try again later."
-          : error.message || "An unexpected error occurred.",
+          : error?.message || "An unexpected error occurred.",
     }));
   }
 }, [token, isCacheValid, updateCache, state.dataCache]);
@@ -1810,9 +1848,14 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       );
 
   
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        throw new Error(`Failed to parse server response: ${jsonError?.message || jsonError?.toString() || 'Unknown error'}`);
+      }
 
-      if (response.ok && data.status === "success") {
+      if (response.ok && data && data.status === "success") {
         // Update Firebase status to "Delivered"
         await updateDeliveryStatus(orderId, "Delivered", {
           deliveredAt: new Date().toISOString(),
@@ -1822,35 +1865,35 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
         setState((prev) => ({ ...prev, activeOrder: null, acceptedOrder: null }));
         
         // Fetch updated delivery history to show the completed order
-        fetchDeliveryHistory().catch(e => console.error('Error fetching delivery history:', e));
+        fetchDeliveryHistory().catch(e => logger.error('Error fetching delivery history:', e));
         
         // Fetch active orders to clear the completed one
-        fetchAllActiveOrders().catch(e => console.error('Error fetching active orders:', e));
+        fetchAllActiveOrders().catch(e => logger.error('Error fetching active orders:', e));
         
         Alert.alert("🎉 Delivery Verified!", data.message);
         return { success: true, data: data.data };
       }
   
-      // Handle different error response formats
+      // Handle different error response formats - safely access properties
       let errorMessage = "Please try again.";
       
-      if (data.error) {
-        if (typeof data.error === 'string') {
-          errorMessage = data.error;
-        } else if (data.error.message) {
-          errorMessage = data.error.message;
+      if (data && data?.error) {
+        if (typeof data?.error === 'string') {
+          errorMessage = data?.error;
+        } else if (typeof data?.error === 'object' && data?.error.message) {
+          errorMessage = data?.error.message;
         }
-      } else if (data.message) {
+      } else if (data && data.message) {
         errorMessage = data.message;
       }
       
       Alert.alert("❌ Verification Failed", errorMessage);
       return { success: false, error: errorMessage };
     } catch (error) {
-      console.error('❌ Error verifying delivery:', error);
+      logger.error('❌ Error verifying delivery:', error);
       
       // Check if it's a network error or something else
-      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+      const errorMessage = error?.message === 'Failed to fetch' || error?.message?.includes('Network request failed')
         ? "Unable to connect to server. Please check your internet connection and try again."
         : "Something went wrong. Please try again later.";
       
@@ -1878,7 +1921,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       
       return true;
     } catch (error) {
-      console.error('❌ Error completing order:', error);
+      logger.error('❌ Error completing order:', error);
       return false;
     }
   }, [fetchAllActiveOrders, fetchDeliveryHistory]);
@@ -1899,7 +1942,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       
       return true;
     } catch (error) {
-      console.error('❌ Error cancelling order:', error);
+      logger.error('❌ Error cancelling order:', error);
       return false;
     }
   }, [fetchActiveOrder]);
@@ -1919,10 +1962,10 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
         locationError: null
       }));
     } catch (error) {
-      console.error('Error starting location tracking:', error);
+      logger.error('Error starting location tracking:', error);
       setState((prev) => ({ 
         ...prev, 
-        locationError: error.message,
+        locationError: error?.message || error?.toString() || 'Unknown error',
         isLocationTracking: false
       }));
     }
@@ -1949,7 +1992,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
     try {
       return await locationService.getCurrentLocationAsync();
     } catch (error) {
-      console.error('Error getting current location:', error);
+      logger.error('Error getting current location:', error);
       throw error;
     }
   }, []);
@@ -1969,7 +2012,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
   // 📍 Update delivery status in Firebase
   const updateDeliveryStatus = useCallback(async (orderId, status, additionalData = {}) => {
     if (!state.activeOrder || state.activeOrder.orderId !== orderId) {
-      console.warn('No active order found for status update');
+    logger.warn('No active order found for status update');
       return false;
     }
 
@@ -2001,7 +2044,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
 
       return true;
     } catch (error) {
-      console.error('❌ Error updating delivery status:', error);
+      logger.error('❌ Error updating delivery status:', error);
       return false;
     }
   }, [state.activeOrder]);
@@ -2009,13 +2052,13 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
   // 📍 Send location update to Firebase (can be called manually)
   const sendLocationUpdate = useCallback(async (orderId) => {
     if (!orderId) {
-      console.warn('Order ID required for location update');
+      logger.warn('Order ID required for location update');
       return false;
     }
 
     const currentLocation = locationService.getCurrentLocation();
     if (!currentLocation) {
-      console.warn('No current location available');
+     logger.warn('No current location available');
       return false;
     }
 
@@ -2043,7 +2086,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       await update(orderRef, cleanedLocationData);
       return true;
     } catch (error) {
-      console.error('❌ Error sending location update:', error);
+      logger.error('❌ Error sending location update:', error);
       return false;
     }
   }, [userId, user]);
@@ -2093,8 +2136,8 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       await update(orderRef, cleanedInitialData);
       return true;
     } catch (error) {
-      console.error('❌ Error initializing order tracking:', error);
-      console.error('❌ Error details:', error.message);
+      logger.error('❌ Error initializing order tracking:', error);
+      logger.error('❌ Error details:', error?.message || error?.toString() || 'Unknown error');
       return false;
     }
   }, [userId, user]);
@@ -2102,13 +2145,13 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
   // 📍 Send delivery guy location directly to Firebase (manual trigger)
   const sendDeliveryGuyLocationToFirebase = useCallback(async () => {
     if (!userId) {
-      console.warn('User ID required for location update');
+      logger.warn('User ID required for location update');
       return false;
     }
 
     const currentLocation = locationService.getCurrentLocation();
     if (!currentLocation) {
-      console.warn('No current location available');
+     logger.warn('No current location available');
       return false;
     }
 
@@ -2163,7 +2206,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
         // Permission denied - Firebase rules may need updating on backend
         return false;
       }
-      console.warn('⚠️ Could not send delivery guy location to Firebase');
+     logger.warn('⚠️ Could not send delivery guy location to Firebase');
       return false;
     }
   }, [userId, user, state.isOnline, state.isLocationTracking, state.activeOrder]);
@@ -2233,7 +2276,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
         ]).catch(error => {
           // Silently handle Firebase permission errors
           if (!error.message?.includes('PERMISSION_DENIED') && !error.message?.includes('permission_denied')) {
-            console.warn('⚠️ Could not update location in Firebase');
+           logger.warn('⚠️ Could not update location in Firebase');
           }
         });
         

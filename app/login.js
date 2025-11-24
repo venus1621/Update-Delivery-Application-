@@ -149,8 +149,8 @@ export default function LoginScreen() {
         }, 1500);
       } else {
         // Display server error message
-        const serverMessage = data.message || data.error || 
-                             (data.errors && data.errors[0]?.msg) || 
+        const serverMessage = data.message || data?.error || 
+                             (data?.errors && data?.errors[0]?.msg) || 
                              'Failed to send OTP. Please try again.';
         setResetError(serverMessage);
       }
@@ -254,8 +254,8 @@ export default function LoginScreen() {
         }
       } else {
         // Display server error message
-        const serverMessage = data.message || data.error || 
-                             (data.errors && data.errors[0]?.msg) || 
+        const serverMessage = data.message || data?.error || 
+                             (data?.errors && data?.errors[0]?.msg) || 
                              'Failed to reset password. Please try again.';
         setResetError(serverMessage);
       }

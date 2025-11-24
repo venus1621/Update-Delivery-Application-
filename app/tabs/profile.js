@@ -403,8 +403,8 @@ export default function ProfileScreen() {
         }, 1500);
       } else {
         // Display server error message
-        const serverMessage = data.message || data.error || 
-                             (data.errors && data.errors[0]?.msg) || 
+        const serverMessage = data.message || data?.error || 
+                             (data?.errors && data?.errors[0]?.msg) || 
                              'Failed to change password. Please try again.';
         setPasswordError(serverMessage);
       }

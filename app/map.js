@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ArrowLeft, MapPin, Navigation, RefreshCw, Play, Pause, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Navigation, RefreshCw, Play, Pause, Trash2 } from 'lucide-react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import * as Location from 'expo-location';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useLocationTracking } from '../services/location-service';
-import { WebView } from "react-native-webview";
 
 const { width, height } = Dimensions.get('window');
-const ASPECT_RATIO = width / height;
-const ROUTE_RECALC_DEBOUNCE = 5000; // ms
-const MAX_MOVEMENT_POINTS = 500;
 
 export default function MapScreen() {
   const { restaurantLocation } = useLocalSearchParams();
@@ -34,42 +30,36 @@ export default function MapScreen() {
   } = useLocationTracking();
 
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
-  const [locationPermission, setLocationPermission] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [movementPath, setMovementPath] = useState([]);
   const [distance, setDistance] = useState(0);
-  const [eta, setEta] = useState(0); // in minutes
+  const [eta, setEta] = useState(0);
   const [isTrackingMovement, setIsTrackingMovement] = useState(false);
 
-  const movementPathRef = useRef([]);
   const mapRef = useRef(null);
-  const isCalculatingRef = useRef(false);
-  const lastRouteCalcRef = useRef(0);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const lastRouteCalcRef = useRef(0);
+  const ROUTE_RECALC_DEBOUNCE = 5000;
 
-  // Parse restaurant location safely
   const restaurant = useMemo(() => {
     if (!restaurantLocation) return null;
     try {
       const parsed = JSON.parse(restaurantLocation);
-      if (typeof parsed.lat !== 'number' || typeof parsed.lng !== 'number') {
-        throw new Error('Invalid coordinates');
+      if (typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
+        return { latitude: parsed.lat, longitude: parsed.lng, ...parsed };
       }
-      return parsed;
-    } catch (error) {
-      console.error('Invalid restaurant location:', error);
+    } catch (e) {
+      console.error('Invalid restaurant location:', e);
       Alert.alert('Error', 'Invalid restaurant data.');
-      return null;
     }
+    return null;
   }, [restaurantLocation]);
 
-  // Initialize location
   useEffect(() => {
     initializeLocation();
   }, []);
 
-  // Recalculate route when location or restaurant changes
   useEffect(() => {
     if (currentLocation && restaurant) {
       const now = Date.now();
@@ -80,239 +70,146 @@ export default function MapScreen() {
     }
   }, [currentLocation, restaurant]);
 
-  // Update movement path
   useEffect(() => {
     if (currentLocation && isTrackingMovement) {
       const newPoint = {
         latitude: currentLocation.latitude,
         longitude: currentLocation.longitude,
-        timestamp: Date.now(),
       };
-
-      // Avoid duplicates
-      const last = movementPathRef.current[movementPathRef.current.length - 1];
-      if (!last || calculateDistance(last.latitude, last.longitude, newPoint.latitude, newPoint.longitude) > 0.005) {
-        movementPathRef.current = [...movementPathRef.current.slice(-MAX_MOVEMENT_POINTS), newPoint];
-        setMovementPath(movementPathRef.current);
-      }
+      setMovementPath(prev => {
+        const last = prev[prev.length - 1];
+        if (!last || calculateDistance(last.latitude, last.longitude, newPoint.latitude, newPoint.longitude) > 0.01) {
+          return [...prev.slice(-500), newPoint];
+        }
+        return prev;
+      });
     }
   }, [currentLocation, isTrackingMovement]);
 
-  // Show errors
   useEffect(() => {
-    if (locationError) {
-      Alert.alert('Location Error', locationError);
-    }
+    if (locationError) Alert.alert('Location Error', locationError);
   }, [locationError]);
 
-  // Fit map to route
-  useEffect(() => {
-    if (routeCoordinates.length > 1 && mapRef.current) {
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-
-      mapRef.current.fitToCoordinates(routeCoordinates, {
-        edgePadding: { top: 80, right: 80, bottom: 200, left: 80 },
-        animated: true,
-      });
-    }
-  }, [routeCoordinates]);
-
   const initializeLocation = async () => {
+    setIsInitializing(true);
     try {
-      setIsInitializing(true);
       await startTracking();
-      setLocationPermission(true);
-    } catch (error) {
-      Alert.alert(
-        'Location Required',
-        'Enable location to use navigation.',
-        [
-          { text: 'Cancel', onPress: () => router.back() },
-          { text: 'Retry', onPress: initializeLocation },
-        ]
-      );
+    } catch (err) {
+      Alert.alert('Location Required', 'Enable location to use navigation.', [
+        { text: 'Cancel', onPress: () => router.back() },
+        { text: 'Retry', onPress: initializeLocation },
+      ]);
     } finally {
       setIsInitializing(false);
-    }
+  }
   };
 
   const calculateRoute = async () => {
-    if (!currentLocation || !restaurant || isCalculatingRef.current) return;
+    if (!currentLocation || !restaurant) return;
 
-    isCalculatingRef.current = true;
     setIsLoadingRoute(true);
+    Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
 
     try {
-      const routeData = await getRouteCoordinates(
+      const routeData = await getRouteFromOSRM(
         currentLocation.latitude,
         currentLocation.longitude,
-        restaurant.lat,
-        restaurant.lng
+        restaurant.latitude,
+        restaurant.longitude
       );
 
       if (routeData?.coordinates?.length > 0) {
         setRouteCoordinates(routeData.coordinates);
-        setDistance(routeData.distance / 1000); // meters → km
-        setEta(Math.round(routeData.duration / 60)); // seconds → minutes
+        setDistance(routeData.distance / 1000);
+        setEta(Math.round(routeData.duration / 60));
       } else {
-        fallbackRoute();
+        fallbackStraightLine();
       }
-    } catch (error) {
-      console.error('Route error:', error);
-      fallbackRoute();
+    } catch (err) {
+      console.error(err);
+      fallbackStraightLine();
     } finally {
       setIsLoadingRoute(false);
-      isCalculatingRef.current = false;
     }
   };
 
-  const fallbackRoute = () => {
-    const coords = [
+  const fallbackStraightLine = () => {
+    const line = [
       { latitude: currentLocation.latitude, longitude: currentLocation.longitude },
-      { latitude: restaurant.lat, longitude: restaurant.lng },
+      { latitude: restaurant.latitude, longitude: restaurant.longitude },
     ];
-    setRouteCoordinates(coords);
-    const dist = calculateDistance(
-      currentLocation.latitude,
-      currentLocation.longitude,
-      restaurant.lat,
-      restaurant.lng
-    );
-    setDistance(dist);
-    setEta(Math.round(dist / 5)); // ~5 km/h walking
+    setRouteCoordinates(line);
+    const distKm = calculateDistance(currentLocation.latitude, currentLocation.longitude, restaurant.latitude, restaurant.longitude);
+    setDistance(distKm);
+    setEta(Math.round(distKm / 5 * 60)); // ~5 km/h walking
   };
 
-  const getRouteCoordinates = async (startLat, startLng, endLat, endLng) => {
+  const getRouteFromOSRM = async (startLat, startLng, endLat, endLng) => {
     try {
-      const url = `http://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson&steps=true`;
-      const response = await fetch(url);
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const data = await response.json();
-      const route = data.routes?.[0];
-
-      if (!route) return null;
-
+      const url = `http://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('OSRM error');
+      const data = await res.json();
+      const route = data.routes[0];
       const coords = route.geometry.coordinates.map(([lng, lat]) => ({
         latitude: lat,
         longitude: lng,
       }));
-
       return {
         coordinates: coords,
         distance: route.distance,
         duration: route.duration,
       };
-    } catch (error) {
-      console.error('OSRM failed:', error);
+    } catch (e) {
       return null;
     }
   };
 
-  const generateMapHtml = ({
-    currentLocation,
-    restaurant,
-    routeCoordinates,
-    movementPath,
-  }) => {
-    const data = {
-      currentLocation: currentLocation || null,
-      restaurant: restaurant || null,
-      routeCoordinates: routeCoordinates || [],
-      movementPath: movementPath || [],
-    };
+  const animateToRoute = () => {
+    if (routeCoordinates.length < 2 || !mapRef.current) return;
 
-    return `<!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <style>html,body,#map{height:100%;margin:0;padding:0}</style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <script>
-        const data = ${JSON.stringify(data)};
-        const startLat = data.currentLocation ? data.currentLocation.latitude : (data.restaurant ? data.restaurant.lat : 0);
-        const startLng = data.currentLocation ? data.currentLocation.longitude : (data.restaurant ? data.restaurant.lng : 0);
-        const map = L.map('map').setView([startLat, startLng], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        if (data.currentLocation) {
-          L.marker([data.currentLocation.latitude, data.currentLocation.longitude]).addTo(map).bindPopup('You are here');
-        }
-
-        if (data.restaurant) {
-          L.marker([data.restaurant.lat, data.restaurant.lng]).addTo(map).bindPopup('Destination');
-        }
-
-        if (data.routeCoordinates && data.routeCoordinates.length > 0) {
-          const latlngs = data.routeCoordinates.map(p => [p.latitude, p.longitude]);
-          L.polyline(latlngs, { color: '#1E40AF', weight: 4 }).addTo(map);
-          map.fitBounds(latlngs);
-        } else if (data.currentLocation && data.restaurant) {
-          map.fitBounds([[data.currentLocation.latitude, data.currentLocation.longitude], [data.restaurant.lat, data.restaurant.lng]]);
-        }
-
-        if (data.movementPath && data.movementPath.length > 0) {
-          const mp = data.movementPath.map(p => [p.latitude, p.longitude]);
-          L.polyline(mp, { color: '#10B981', weight: 3 }).addTo(map);
-        }
-      </script>
-    </body>
-    </html>`;
+    mapRef.current.fitToCoordinates(routeCoordinates, {
+      edgePadding: { top: 100, right: 100, bottom: 300, left: 100 },
+      animated: true,
+    });
   };
+
+  useEffect(() => {
+    if (routeCoordinates.length > 1) animateToRoute();
+  }, [routeCoordinates]);
 
   const toggleTracking = () => {
-    if (isTrackingMovement) {
-      setIsTrackingMovement(false);
-    } else {
-      movementPathRef.current = [];
-      setMovementPath([]);
-      setIsTrackingMovement(true);
-    }
-  };
-
-  const clearPath = () => {
-    movementPathRef.current = [];
-    setMovementPath([]);
+    setIsTrackingMovement(prev => {
+      if (!prev) setMovementPath([]); // clear on start
+      return !prev;
+    });
   };
 
   const openInMaps = async () => {
     if (!currentLocation || !restaurant) return;
 
-    const latLng = `${restaurant.lat},${restaurant.lng}`;
-    const label = encodeURIComponent(restaurant.name || 'Restaurant');
-    const currentLatLng = `${currentLocation.latitude},${currentLocation.longitude}`;
-
-    // Use Google Maps directions URL format with current location as origin for all platforms
-    const url = Platform.select({
-      ios: `http://maps.apple.com/?saddr=${currentLatLng}&daddr=${latLng}&dirflg=d`,
-      android: `https://www.google.com/maps/dir/?api=1&origin=${currentLatLng}&destination=${latLng}&travelmode=driving`,
-      default: `https://www.google.com/maps/dir/?api=1&origin=${currentLatLng}&destination=${latLng}&travelmode=driving`,
+    const scheme = Platform.select({
+      ios: 'maps:0,0?q=',
+      android: 'geo:0,0?q=',
     });
+    const latLng = `${restaurant.latitude},${restaurant.longitude}`;
+    const label = encodeURIComponent(restaurant.name || 'Restaurant');
+    const url = `${scheme}${latLng}(${label})@` + (Platform.OS === 'android'
+      ? `${restaurant.latitude},${restaurant.longitude}`
+      : '');
+
+    // Fallback to Google Maps directions
+    const googleUrl = `https://www.google.com/maps/dir/?api=1&origin=${currentLocation.latitude},${currentLocation.longitude}&destination=${restaurant.latitude},${restaurant.longitude}&travelmode=driving`;
 
     try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      }
-    } catch (error) {
-      console.error('Error opening maps:', error);
-      Alert.alert('Error', 'Cannot open maps app.');
+      const supported = await Linking.canOpenURL(googleUrl);
+      await Linking.openURL(supported ? googleUrl : url);
+    } catch (e) {
+      Alert.alert('Error', 'Cannot open maps app');
     }
   };
 
-  if (isInitializing) {
+  if (isInitializing || !currentLocation || !restaurant) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -320,35 +217,13 @@ export default function MapScreen() {
             <ArrowLeft color="#1F2937" size={24} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Navigation</Text>
-          <View style={styles.placeholder} />
+          <View style={{ width: 40 }} />
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1E40AF" />
-          <Text style={styles.loadingText}>Getting your location...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!currentLocation || !restaurant) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <ArrowLeft color="#1F2937" size={24} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Navigation</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <View style={styles.errorContainer}>
-          <MapPin color="#EF4444" size={48} />
-          <Text style={styles.errorTitle}>Location Unavailable</Text>
-          <Text style={styles.errorMessage}>
-            We couldn't get your location. Please check permissions and try again.
+          <Text style={styles.loadingText}>
+            {isInitializing ? 'Getting your location...' : 'Location unavailable'}
           </Text>
-          <TouchableOpacity style={styles.retryButton} onPress={initializeLocation}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -358,10 +233,7 @@ export default function MapScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft color="#1F2937" size={24} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Navigation</Text>
@@ -370,55 +242,56 @@ export default function MapScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Map */}
-      <View style={styles.mapContainer}>
-        {Platform.OS === "web" ? (
-          <iframe
-            title="Map"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${
-              Math.min(currentLocation.longitude, restaurant.lng) - 0.02
-            },${Math.min(currentLocation.latitude, restaurant.lat) - 0.02},${
-              Math.max(currentLocation.longitude, restaurant.lng) + 0.02
-            },${
-              Math.max(currentLocation.latitude, restaurant.lat) + 0.02
-            }&layer=mapnik&marker=${currentLocation.latitude},${
-              currentLocation.longitude
-            }&marker=${restaurant.lat},${restaurant.lng}`}
-            style={{ width: "100%", height: "100%", border: 0 }}
-          />
-        ) : (
-          <WebView
-            originWhitelist={["*"]}
-            source={{
-              html: generateMapHtml({
-                currentLocation,
-                restaurant,
-                routeCoordinates,
-                movementPath,
-              }),
-            }}
-            style={styles.nativeMapContainer}
-            javaScriptEnabled
-            domStorageEnabled
+      {/* Native Map */}
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFillObject}
+        provider={PROVIDER_GOOGLE} // Looks better than default on both platforms
+        showsUserLocation
+        followsUserLocation={false}
+        showsMyLocationButton={true}
+        loadingEnabled
+        onMapReady={() => animateToRoute()}
+      >
+        {/* Restaurant Marker */}
+        <Marker
+          coordinate={{ latitude: restaurant.latitude, longitude: restaurant.longitude }}
+          title={restaurant.name || "Restaurant"}
+          pinColor="#EF4444"
+        />
+
+        {/* Route Polyline */}
+        {routeCoordinates.length > 1 && (
+          <Polyline
+            coordinates={routeCoordinates}
+            strokeColor="#1E40AF"
+            strokeWidth={5}
           />
         )}
 
-        {isLoadingRoute && (
-          <Animated.View style={[styles.loadingOverlay, { opacity: fadeAnim }]}>
-            <ActivityIndicator size="small" color="#1E40AF" />
-            <Text style={styles.loadingOverlayText}>Updating route...</Text>
-          </Animated.View>
+        {/* Tracked Movement Path */}
+        {movementPath.length > 1 && (
+          <Polyline
+            coordinates={movementPath}
+            strokeColor="#10B981"
+            strokeWidth={4}
+            lineDashPattern={[10, 10]}
+          />
         )}
-      </View>
+      </MapView>
+
+      {/* Loading Overlay */}
+      {isLoadingRoute && (
+        <Animated.View style={[styles.loadingOverlay, { opacity: fadeAnim }]}>
+          <ActivityIndicator size="small" color="#1E40AF" />
+          <Text style={styles.loadingOverlayText}>Updating route...</Text>
+        </Animated.View>
+      )}
 
       {/* Bottom Panel */}
       <View style={styles.infoPanel}>
-        <LinearGradient
-          colors={["#FFFFFF", "#F8FAFC"]}
-          style={styles.infoGradient}
-        >
+        <LinearGradient colors={["#FFFFFF", "#F8FAFC"]} style={styles.infoGradient}>
           <View style={styles.infoContent}>
-            {/* Distance & ETA */}
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statLabel}>Distance</Text>
@@ -430,55 +303,26 @@ export default function MapScreen() {
               </View>
             </View>
 
-            {/* Action Buttons */}
             <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={toggleTracking}
-              >
-                {isTrackingMovement ? (
-                  <Pause color="#DC2626" size={20} />
-                ) : (
-                  <Play color="#10B981" size={20} />
-                )}
-                <Text
-                  style={[
-                    styles.actionText,
-                    isTrackingMovement && styles.activeText,
-                  ]}
-                >
-                  {isTrackingMovement ? "Stop" : "Track"} Path
+              <TouchableOpacity style={styles.actionButton} onPress={toggleTracking}>
+                {isTrackingMovement ? <Pause color="#DC2626" size={20} /> : <Play color="#10B981" size={20} />}
+                <Text style={[styles.actionText, isTrackingMovement && styles.activeText]}>
+                  {isTrackingMovement ? 'Stop' : 'Track'} Path
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.actionButton}
-                onPress={clearPath}
+                onPress={() => setMovementPath([])}
                 disabled={movementPath.length === 0}
               >
-                <Trash2
-                  color={movementPath.length > 0 ? "#EF4444" : "#9CA3AF"}
-                  size={20}
-                />
-                <Text
-                  style={[
-                    styles.actionText,
-                    movementPath.length > 0 && styles.dangerText,
-                  ]}
-                >
-                  Clear
-                </Text>
+                <Trash2 color={movementPath.length > 0 ? "#EF4444" : "#9CA3AF"} size={20} />
+                <Text style={[styles.actionText, movementPath.length > 0 && styles.dangerText]}>Clear</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.openMapsButton}
-                onPress={openInMaps}
-              >
-                <LinearGradient
-                  colors={["#1E40AF", "#1D4ED8"]}
-                  style={styles.openMapsGradient}
-                >
-                  <Navigation color="#FFFFFF" size={20} />
+              <TouchableOpacity style={styles.openMapsButton} onPress={openInMaps}>
+                <LinearGradient colors={["#1E40AF", "#1D4ED8"]} style={styles.openMapsGradient}>
+                  <Navigation color="#FFF" size={20} />
                   <Text style={styles.openMapsText}>Open in Maps</Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -490,7 +334,7 @@ export default function MapScreen() {
   );
 }
 
-// Styles (updated)
+// Same styles as before (only small changes)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: {
@@ -502,39 +346,45 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    zIndex: 10,
   },
   backButton: { padding: 8 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F2937' },
   refreshButton: { padding: 8 },
-  placeholder: { width: 40 },
-  mapContainer: { flex: 1, position: 'relative' },
-  nativeMapContainer: { width: '100%', height: '100%' },
   loadingOverlay: {
     position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
+    top: 100,
+    left: 20,
+    right: 20,
     backgroundColor: 'rgba(255,255,255,0.95)',
     borderRadius: 12,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 10,
   },
   loadingOverlayText: { marginLeft: 8, fontWeight: '600', color: '#1E40AF' },
-  infoPanel: { borderTopWidth: 1, borderTopColor: '#E5E7EB' },
-  infoGradient: { padding: 20 },
+  infoPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  infoGradient: { padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
   infoContent: { gap: 16 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-around' },
   statItem: { alignItems: 'center' },
   statLabel: { fontSize: 14, color: '#6B7280' },
   statValue: { fontSize: 20, fontWeight: 'bold', color: '#1E40AF', marginTop: 4 },
-  actionRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  actionRow: { flexDirection: 'row', gap: 12 },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
@@ -553,9 +403,4 @@ const styles = StyleSheet.create({
   openMapsText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 16, fontSize: 16, color: '#6B7280' },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  errorTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F2937', marginTop: 16 },
-  errorMessage: { fontSize: 16, color: '#6B7280', textAlign: 'center', lineHeight: 24, marginVertical: 16 },
-  retryButton: { backgroundColor: '#1E40AF', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  retryButtonText: { color: '#FFF', fontWeight: '600' },
 });

@@ -79,7 +79,8 @@ class LocationService {
       );
 
       logger.log('📍 Location tracking started');
-    } catch (error) {
+    }
+     catch (error) {
       console.error('Error starting location tracking:', error);
       this.isTracking = false;
       throw error;
@@ -104,7 +105,7 @@ class LocationService {
           }
         }
       } catch (error) {
-        console.warn('Error stopping location updates:', error);
+        logger.warn('Error stopping location updates:', error);
       }
 
       this.watchId = null;

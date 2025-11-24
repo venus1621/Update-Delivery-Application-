@@ -20,6 +20,7 @@ import { router } from 'expo-router';
 import OrderModal from '../../components/OrderModal';
 import BroadcastMessage from '../../components/BroadcastMessage';
 import VerificationModal from '../../components/VerificationModal';
+import { logger } from '../../utils/logger';
 
 const { width } = Dimensions.get('window');
 
@@ -88,15 +89,15 @@ export default function DashboardScreen() {
       
       const refreshPromises = [
         // Delivery-related data - force fresh data
-        fetchAvailableOrders(true).catch(e => console.error('Error fetching available orders:', e)),
-        fetchAllActiveOrders(true).catch(e => console.error('Error fetching active orders:', e)),
-        fetchDeliveryHistory(true).catch(e => console.error('Error fetching delivery history:', e)),
+        fetchAvailableOrders(true).catch(e => logger.error('Error fetching available orders:', e)),
+        fetchAllActiveOrders(true).catch(e => logger.error('Error fetching active orders:', e)),
+        // fetchDeliveryHistory(true).catch(e => logger.error('Error fetching delivery history:', e)),
       ];
 
       // Also refresh user authentication status
       if (checkAuthStatus) {
         refreshPromises.push(
-          checkAuthStatus().catch(e => console.error('Error checking auth status:', e))
+          checkAuthStatus().catch(e => logger.error('Error checking auth status:', e))
         );
       }
 
@@ -114,7 +115,7 @@ export default function DashboardScreen() {
       showRefreshMessage('✅ Data refreshed successfully!', true);
       
     } catch (error) {
-      console.error('❌ Error during refresh:', error);
+      logger.error('❌ Error during refresh:', error);
       showRefreshMessage('⚠️ Some data failed to refresh', false);
     } finally {
       setRefreshing(false);
@@ -156,11 +157,11 @@ export default function DashboardScreen() {
         // But we refresh here too for immediate UI update
         await Promise.all([
           fetchAllActiveOrders(), // Use combined function instead
-          fetchDeliveryHistory(),
+          // fetchDeliveryHistory(),
         ]);
       }
     } catch (error) {
-      console.error('Error verifying delivery:', error);
+      logger.error('Error verifying delivery:', error);
     } finally {
       setIsVerifying(false);
     }

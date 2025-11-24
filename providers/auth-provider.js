@@ -127,8 +127,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         setState(prev => ({ ...prev, isLoading: false }));
         
         // Display server error message
-        const serverMessage = data.message || data.error || 
-                             (data.errors && data.errors[0]?.msg) || 
+        const serverMessage = data.message || data?.error || 
+                             (data?.errors && data?.errors[0]?.msg) || 
                              'Login failed';
         return { success: false, message: serverMessage };
       }
