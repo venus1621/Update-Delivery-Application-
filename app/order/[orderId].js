@@ -174,21 +174,21 @@ export default function OrderDetailsScreen() {
     }
 
     if (lat && lng) {
-      // Navigate to map screen with restaurant location
-      const restaurantLocation = JSON.stringify({
-        lat: Number(lat),
-        lng: Number(lng),
-        name: order.restaurantLocation?.name || order.restaurantName || 'Restaurant',
-        address: order.restaurantLocation?.address || 'Restaurant Address'
-      });
+      // Open Google Maps with directions to restaurant
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
       
-      
-      router.push({
-        pathname: '/map',
-        params: {
-          restaurantLocation: restaurantLocation
-        }
-      });
+      Linking.canOpenURL(googleMapsUrl)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(googleMapsUrl);
+          } else {
+            Alert.alert('Error', 'Cannot open Google Maps on this device');
+          }
+        })
+        .catch((error) => {
+          console.error('Error opening Google Maps:', error);
+          Alert.alert('Error', 'Failed to open Google Maps');
+        });
     } else {
       Alert.alert('Error', 'Restaurant location not available');
     }
@@ -218,21 +218,21 @@ export default function OrderDetailsScreen() {
     }
     
     if (lat && lng) {
-      // Navigate to map screen with delivery location
-      const deliveryLocation = JSON.stringify({
-        lat: Number(lat),
-        lng: Number(lng),
-        name: 'Delivery Location',
-        address: deliveryLocationData.address || 'Delivery Address'
-      });
+      // Open Google Maps with directions to delivery location
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
       
-      
-      router.push({
-        pathname: '/map',
-        params: {
-          restaurantLocation: deliveryLocation
-        }
-      });
+      Linking.canOpenURL(googleMapsUrl)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(googleMapsUrl);
+          } else {
+            Alert.alert('Error', 'Cannot open Google Maps on this device');
+          }
+        })
+        .catch((error) => {
+          console.error('Error opening Google Maps:', error);
+          Alert.alert('Error', 'Failed to open Google Maps');
+        });
     } else {
       Alert.alert('Error', 'Delivery location not available');
     }
