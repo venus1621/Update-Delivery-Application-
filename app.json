@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Delivery Driver",
+    "name": "Bahiran Delivery",
     "slug": "delivery-driver-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -57,15 +57,15 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Delivery Driver to use your location for tracking deliveries.",
-          "locationAlwaysPermission": "Allow Delivery Driver to use your location in the background for real-time delivery tracking.",
-          "locationWhenInUsePermission": "Allow Delivery Driver to use your location for navigation and delivery tracking."
+          "locationAlwaysAndWhenInUsePermission": "Allow Bahiran Delivery to use your location for tracking deliveries.",
+          "locationAlwaysPermission": "Allow Bahiran Delivery to use your location in the background for real-time delivery tracking.",
+          "locationWhenInUsePermission": "Allow Bahiran Delivery to use your location for navigation and delivery tracking."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Delivery Driver to access your camera to scan QR codes."
+          "cameraPermission": "Allow Bahiran Delivery to access your camera to scan QR codes."
         }
       ]
     ],

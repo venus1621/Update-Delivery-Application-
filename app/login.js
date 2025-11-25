@@ -305,7 +305,7 @@ export default function LoginScreen() {
                 >
                   <Truck color="#667eea" size={32} />
                 </LinearGradient>
-                <Text style={styles.title}>Gebeta Delivery</Text>
+                <Text style={styles.title}>Bahiran Delivery</Text>
                 <Text style={styles.subtitle}>Sign in to start delivering</Text>
               </View>
 
@@ -769,14 +769,14 @@ export default function LoginScreen() {
           <ScrollView style={styles.termsModalContent} showsVerticalScrollIndicator={true}>
             <Text style={styles.termsEffectiveDate}>Effective Date: November 18, 2024</Text>
             
-            <Text style={styles.termsWelcome}>Welcome to Gebeta Delivery</Text>
+            <Text style={styles.termsWelcome}>Welcome to Bahiran Delivery</Text>
             <Text style={styles.termsBodyText}>
-              These Terms and Conditions ("Terms", "Agreement") govern your use of the Gebeta Delivery Driver mobile application operated by Gebeta Delivery. By accessing or using our App, you agree to be bound by these Terms.
+              These Terms and Conditions ("Terms", "Agreement") govern your use of the Bahiran Delivery Driver mobile application operated by Bahiran Delivery. By accessing or using our App, you agree to be bound by these Terms.
             </Text>
 
             <Text style={styles.termsSectionTitle}>1. ACCEPTANCE OF TERMS</Text>
             <Text style={styles.termsBodyText}>
-              By registering as a delivery driver with Gebeta Delivery, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. This Agreement is governed by the laws of the Federal Democratic Republic of Ethiopia.
+              By registering as a delivery driver with Bahiran Delivery, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. This Agreement is governed by the laws of the Federal Democratic Republic of Ethiopia.
             </Text>
 
             <Text style={styles.termsSectionTitle}>2. ELIGIBILITY</Text>
@@ -823,7 +823,7 @@ export default function LoginScreen() {
 
             <Text style={styles.termsSectionTitle}>7. LIABILITY</Text>
             <Text style={styles.termsBodyText}>
-              You are an independent contractor. Gebeta Delivery is not liable for injuries, damages, or losses incurred during deliveries. You must maintain appropriate insurance coverage.
+              You are an independent contractor. Bahiran Delivery is not liable for injuries, damages, or losses incurred during deliveries. You must maintain appropriate insurance coverage.
             </Text>
 
             <Text style={styles.termsSectionTitle}>8. PRIVACY</Text>

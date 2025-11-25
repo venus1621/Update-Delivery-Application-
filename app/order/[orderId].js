@@ -174,21 +174,21 @@ export default function OrderDetailsScreen() {
     }
 
     if (lat && lng) {
-      // Open Google Maps with directions to restaurant
-      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      // Navigate to map screen with restaurant location
+      const restaurantLocation = JSON.stringify({
+        lat: Number(lat),
+        lng: Number(lng),
+        name: order.restaurantLocation?.name || order.restaurantName || 'Restaurant',
+        address: order.restaurantLocation?.address || 'Restaurant Address'
+      });
       
-      Linking.canOpenURL(googleMapsUrl)
-        .then((supported) => {
-          if (supported) {
-            return Linking.openURL(googleMapsUrl);
-          } else {
-            Alert.alert('Error', 'Cannot open Google Maps on this device');
-          }
-        })
-        .catch((error) => {
-          console.error('Error opening Google Maps:', error);
-          Alert.alert('Error', 'Failed to open Google Maps');
-        });
+      
+      router.push({
+        pathname: '/map',
+        params: {
+          restaurantLocation: restaurantLocation
+        }
+      });
     } else {
       Alert.alert('Error', 'Restaurant location not available');
     }
@@ -218,21 +218,21 @@ export default function OrderDetailsScreen() {
     }
     
     if (lat && lng) {
-      // Open Google Maps with directions to delivery location
-      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      // Navigate to map screen with delivery location
+      const deliveryLocation = JSON.stringify({
+        lat: Number(lat),
+        lng: Number(lng),
+        name: 'Delivery Location',
+        address: deliveryLocationData.address || 'Delivery Address'
+      });
       
-      Linking.canOpenURL(googleMapsUrl)
-        .then((supported) => {
-          if (supported) {
-            return Linking.openURL(googleMapsUrl);
-          } else {
-            Alert.alert('Error', 'Cannot open Google Maps on this device');
-          }
-        })
-        .catch((error) => {
-          console.error('Error opening Google Maps:', error);
-          Alert.alert('Error', 'Failed to open Google Maps');
-        });
+      
+      router.push({
+        pathname: '/map',
+        params: {
+          restaurantLocation: deliveryLocation
+        }
+      });
     } else {
       Alert.alert('Error', 'Delivery location not available');
     }
@@ -280,7 +280,7 @@ export default function OrderDetailsScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1E40AF" />
-          <Text style={styles.loadingText}>Loading order details...</Text>
+          <Text style={styles.loadingText}>Loading order detail</Text>
         </View>
       </SafeAreaView>
     );
@@ -319,19 +319,7 @@ export default function OrderDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <ArrowLeft color="#1F2937" size={24} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order Details</Text>
-        <View style={styles.placeholder} />
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+     <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Order Status Card */}
         <View style={styles.statusCard}>
           <LinearGradient

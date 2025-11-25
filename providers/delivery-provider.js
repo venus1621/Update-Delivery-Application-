@@ -166,7 +166,7 @@ export const DeliveryProvider = ({ children }) => {
       }));
     }
   }, []);
-
+  
   // 📳 Start continuous vibration
   const startContinuousVibration = useCallback(() => {
     // Clear any existing vibration interval
@@ -742,6 +742,11 @@ export const DeliveryProvider = ({ children }) => {
 
     checkAndSendToFirebase();
   }, [state.activeOrder, userId, sendOrderStatusToFirebase, token]);
+
+
+
+
+
 
   // 🔌 Connect to socket server with authentication
   // Socket connects ONLY when user is ONLINE
