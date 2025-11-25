@@ -5,7 +5,6 @@ import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { DeliveryProvider } from "../providers/delivery-provider";
 import { AuthProvider } from "../providers/auth-provider";
-import "../firebase"; // Initialize Firebase
  
 SplashScreen.preventAutoHideAsync();
  

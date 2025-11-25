@@ -82,7 +82,7 @@ export default function DashboardScreen() {
   // 🔄 Enhanced Refresh Function - Force fetches fresh data (bypasses cache)
   const onRefresh = async () => {
     setRefreshing(true);
-    
+   
     try {
       // Step 1: Force refresh all data (bypass cache)
       // Pass forceRefresh=true to skip cache and get fresh data
@@ -136,6 +136,7 @@ export default function DashboardScreen() {
   // Handle complete order with verification
   const handleCompleteOrder = () => {
     if (activeOrder) {
+     
       setOrderIdToVerify(activeOrder.orderId);
       setShowVerificationModal(true);
     }
@@ -305,6 +306,24 @@ export default function DashboardScreen() {
             <Text style={styles.connectionText}>
               {isConnected ? '🟢 Connected to server' : '🔴 Connecting...'}
             </Text>
+          </View>
+        )}
+
+        {/* Active Order Mode Warning - Shows for ANY active order */}
+        {activeOrder && (Array.isArray(activeOrder) ? activeOrder.length > 0 : true) && (
+          <View style={styles.activeDeliveryWarning}>
+            <LinearGradient
+              colors={['#F59E0B', '#D97706']}
+              style={styles.activeDeliveryGradient}
+            >
+              <Text style={styles.activeDeliveryIcon}>🚚</Text>
+              <View style={styles.activeDeliveryTextContainer}>
+                <Text style={styles.activeDeliveryTitle}>ACTIVE ORDER MODE</Text>
+                <Text style={styles.activeDeliveryMessage}>
+                  You have an active order. Online status and location are locked until you complete the order.
+                </Text>
+              </View>
+            </LinearGradient>
           </View>
         )}
 
@@ -680,6 +699,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  activeDeliveryWarning: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  activeDeliveryGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  activeDeliveryIcon: {
+    fontSize: 24,
+  },
+  activeDeliveryTextContainer: {
+    flex: 1,
+  },
+  activeDeliveryTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  activeDeliveryMessage: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.95,
+    lineHeight: 16,
   },
   broadcastIndicator: {
     marginHorizontal: 20,
