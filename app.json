@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.deliverydriver.app",
+      "bundleIdentifier": "com.bahiran.deliverydriver.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show your position on the map and help you navigate to delivery locations.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location in the background to track deliveries and update your position in real-time.",
