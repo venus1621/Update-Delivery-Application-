@@ -91,7 +91,7 @@ export default function DashboardScreen() {
         // Delivery-related data - force fresh data
         fetchAvailableOrders(true).catch(e => logger.error('Error fetching available orders:', e)),
         fetchAllActiveOrders(true).catch(e => logger.error('Error fetching active orders:', e)),
-        // fetchDeliveryHistory(true).catch(e => logger.error('Error fetching delivery history:', e)),
+        fetchDeliveryHistory(true).catch(e => logger.error('Error fetching delivery history:', e)),
       ];
 
       // Also refresh user authentication status
@@ -127,7 +127,9 @@ export default function DashboardScreen() {
     // Fetch once on mount - subsequent calls will use cache unless forceRefresh=true
     fetchDeliveryHistory(); // Will use cache if available
     fetchAvailableOrders(); // Will use cache if available
-    fetchAllActiveOrders(); // Will use cache if available
+    fetchAllActiveOrders();
+    
+    // Will use cache if available
   }, []); // Empty deps = runs once on mount
 
   // ⚠️ No auto-refresh when going online - user must manually refresh
@@ -435,6 +437,7 @@ export default function DashboardScreen() {
             <Text style={styles.sectionTitle}>🚚 Currently Delivering</Text>
 
             {activeOrder.map((order, index) => (
+
               <TouchableOpacity
                 key={index}
                 style={styles.activeOrderCard}

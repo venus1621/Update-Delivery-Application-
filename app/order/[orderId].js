@@ -156,7 +156,6 @@ export default function OrderDetailsScreen() {
 
 
   const handleNavigateToRestaurant = () => {
-    
     // Get restaurant location - handle both object format and coordinates array
     let lat, lng;
     
@@ -174,28 +173,29 @@ export default function OrderDetailsScreen() {
     }
 
     if (lat && lng) {
-      // Navigate to map screen with restaurant location
-      const restaurantLocation = JSON.stringify({
-        lat: Number(lat),
-        lng: Number(lng),
-        name: order.restaurantLocation?.name || order.restaurantName || 'Restaurant',
-        address: order.restaurantLocation?.address || 'Restaurant Address'
-      });
+      const restaurantName = order.restaurantLocation?.name || order.restaurantName || 'Restaurant';
       
+      // Open Google Maps with the restaurant location
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(restaurantName)}`;
       
-      router.push({
-        pathname: '/map',
-        params: {
-          restaurantLocation: restaurantLocation
-        }
-      });
+      Linking.canOpenURL(googleMapsUrl)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(googleMapsUrl);
+          } else {
+            Alert.alert('Error', 'Cannot open Google Maps on this device');
+          }
+        })
+        .catch((error) => {
+          console.error('Error opening Google Maps:', error);
+          Alert.alert('Error', 'Failed to open Google Maps');
+        });
     } else {
       Alert.alert('Error', 'Restaurant location not available');
     }
   };
 
   const handleNavigateToDelivery = () => {
-     
     // Get delivery location - check multiple possible field names
     const deliveryLocationData = order?.destinationLocation || order?.deliveryLocation || order?.deliverLocation;
     
@@ -218,21 +218,23 @@ export default function OrderDetailsScreen() {
     }
     
     if (lat && lng) {
-      // Navigate to map screen with delivery location
-      const deliveryLocation = JSON.stringify({
-        lat: Number(lat),
-        lng: Number(lng),
-        name: 'Delivery Location',
-        address: deliveryLocationData.address || 'Delivery Address'
-      });
+      const deliveryName = 'Delivery Location';
       
+      // Open Google Maps with the delivery location
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(deliveryName)}`;
       
-      router.push({
-        pathname: '/map',
-        params: {
-          restaurantLocation: deliveryLocation
-        }
-      });
+      Linking.canOpenURL(googleMapsUrl)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(googleMapsUrl);
+          } else {
+            Alert.alert('Error', 'Cannot open Google Maps on this device');
+          }
+        })
+        .catch((error) => {
+          console.error('Error opening Google Maps:', error);
+          Alert.alert('Error', 'Failed to open Google Maps');
+        });
     } else {
       Alert.alert('Error', 'Delivery location not available');
     }
