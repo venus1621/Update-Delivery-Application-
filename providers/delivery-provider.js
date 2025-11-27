@@ -16,6 +16,7 @@ import locationService from "../services/location-service";
 import { transformOrderLocations } from '../utils/location-utils';
 import { logger } from '../utils/logger';
 import * as DeliveryAPI from '../services/delivery-api';
+import DeliveryOrderModal from '../components/DeliveryOrderModal';
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {
@@ -66,6 +67,8 @@ export const DeliveryProvider = ({ children }) => {
     isLocationTracking: false, // Location tracking status
     locationError: null, // Location error state
     socketError: null, // Last socket connection error (user friendly)
+    showDeliveryModal: false, // Show delivery order modal
+    currentDeliveryOrder: null, // Current delivery order to display in modal
     
     // 🗄️ Cache Management
     dataCache: {
@@ -630,7 +633,37 @@ export const DeliveryProvider = ({ children }) => {
     });
 
     socket.on("deliveryMessage", (message) => {
+      logger.log(`📦 Delivery message received:`, message);
+    
+      // Parse message if it's a string
+      let orderData = message;
+      if (typeof message === 'string') {
+        try {
+          orderData = JSON.parse(message);
+        } catch (e) {
+          logger.error('Failed to parse delivery message:', e);
+          orderData = message;
+        }
+      }
+      
+      // If it's an array, get the first item
+      if (Array.isArray(orderData) && orderData.length > 0) {
+        orderData = orderData[0];
+      }
+      
+      setState(prev => ({
+        ...prev,
+        broadcastMessages: [...prev.broadcastMessages, message],
+        showDeliveryModal: true,
+        currentDeliveryOrder: orderData,
+      }));
+      
+      // Play notification sound and vibrate
+      playNewOrderNotification();
+      Vibration.vibrate([0, 500, 200, 500]);
     });
+    
+    
 
 
     socket.on("errorMessage", (error) => {
@@ -1151,6 +1184,60 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
     }));
   }, []);
 
+  const handleAcceptDeliveryOrder = useCallback(async () => {
+    const order = state.currentDeliveryOrder;
+    if (!order || !order.orderId) {
+      logger.error('No order to accept');
+      return;
+    }
+    
+    logger.log('Accepting delivery order:', order.orderId);
+    
+    // Close the modal first
+    setState((prev) => ({
+      ...prev,
+      showDeliveryModal: false,
+    }));
+    
+    // Accept the order
+    const success = await acceptOrder(order.orderId, userId);
+    
+    if (success) {
+      // Fetch active orders to refresh the state
+      await Promise.all([
+        fetchActiveOrder('Cooked'),
+        fetchActiveOrder('Delivering'),
+      ]);
+      
+      Alert.alert(
+        '✅ Order Accepted',
+        `You have successfully accepted order ${order.orderCode}`,
+        [{ text: 'OK' }]
+      );
+    }
+    
+    // Clear the current delivery order
+    setState((prev) => ({
+      ...prev,
+      currentDeliveryOrder: null,
+    }));
+  }, [state.currentDeliveryOrder, acceptOrder, userId, fetchActiveOrder]);
+
+  const handleDeclineDeliveryOrder = useCallback(() => {
+    logger.log('Declining delivery order');
+    
+    setState((prev) => ({
+      ...prev,
+      showDeliveryModal: false,
+      currentDeliveryOrder: null,
+    }));
+    
+    // Optionally show a toast or message
+    if (Platform.OS === 'android') {
+      ToastAndroid.show('Order declined', ToastAndroid.SHORT);
+    }
+  }, []);
+
   const joinDeliveryMethod = useCallback((method) => {
   }, []);
 
@@ -1533,6 +1620,8 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
         hideOrderModal,
         acceptOrderFromModal,
         declineOrder,
+        handleAcceptDeliveryOrder,
+        handleDeclineDeliveryOrder,
         joinDeliveryMethod,
         clearBroadcastMessages,
         clearNewOrderNotification,
@@ -1564,6 +1653,12 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       }}
     >
       {children}
+      <DeliveryOrderModal
+        visible={state.showDeliveryModal}
+        order={state.currentDeliveryOrder}
+        onAccept={handleAcceptDeliveryOrder}
+        onDecline={handleDeclineDeliveryOrder}
+      />
     </DeliveryContext.Provider>
   );
 };

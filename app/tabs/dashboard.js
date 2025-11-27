@@ -18,7 +18,6 @@ import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 import { router } from 'expo-router';
 import OrderModal from '../../components/OrderModal';
-import BroadcastMessage from '../../components/BroadcastMessage';
 import VerificationModal from '../../components/VerificationModal';
 import { logger } from '../../utils/logger';
 
@@ -53,9 +52,7 @@ export default function DashboardScreen() {
     acceptOrderFromModal,
     declineOrder,
     joinDeliveryMethod,
-    clearBroadcastMessages,
     clearNewOrderNotification,
-    broadcastMessages,
     newOrderNotification,
     acceptedOrder,
     fetchAvailableOrders,
@@ -64,7 +61,6 @@ export default function DashboardScreen() {
 
   const { user, checkAuthStatus } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [showBroadcastMessages, setShowBroadcastMessages] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [orderIdToVerify, setOrderIdToVerify] = useState(null);
@@ -329,24 +325,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Broadcast Messages Indicator */}
-        {broadcastMessages.length > 0 && (
-          <TouchableOpacity 
-            style={styles.broadcastIndicator}
-            onPress={() => setShowBroadcastMessages(true)}
-          >
-            <LinearGradient
-              colors={['#3B82F6', '#1E40AF']}
-              style={styles.broadcastGradient}
-            >
-              <Text style={styles.broadcastText}>
-                📢 {broadcastMessages.length} new message{broadcastMessages.length > 1 ? 's' : ''}
-              </Text>
-              <Text style={styles.broadcastTapText}>Tap to view</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
-
         {/* New Order Notification */}
         {newOrderNotification && (
           <TouchableOpacity 
@@ -534,16 +512,7 @@ export default function DashboardScreen() {
               <Text style={styles.quickActionSubtext}>Account & settings</Text>
             </TouchableOpacity>
             
-            {/* <TouchableOpacity 
-              style={styles.quickActionButton}
-              onPress={() => router.push('/earnings')}
-            >
-              <View style={styles.quickActionIcon}>
-                <DollarSign color="#3B82F6" size={28} />
-              </View>
-              <Text style={styles.quickActionText}>Earnings</Text>
-              <Text style={styles.quickActionSubtext}>View detailed earnings</Text>
-            </TouchableOpacity> */}
+            
           </View>
         </View>
 
@@ -606,14 +575,6 @@ export default function DashboardScreen() {
         orderId={orderIdToVerify}
         orderCode={activeOrder?.order_id}
         isLoading={isVerifying}
-      />
-
-      {/* Broadcast Messages */}
-      <BroadcastMessage
-        visible={showBroadcastMessages}
-        messages={broadcastMessages}
-        onClose={() => setShowBroadcastMessages(false)}
-        onClear={clearBroadcastMessages}
       />
     </SafeAreaView>
   );
@@ -739,29 +700,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.95,
     lineHeight: 16,
-  },
-  broadcastIndicator: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  broadcastGradient: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  broadcastText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  broadcastTapText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.8,
-    textAlign: 'center',
-    marginTop: 4,
   },
   newOrderIndicator: {
     marginHorizontal: 20,

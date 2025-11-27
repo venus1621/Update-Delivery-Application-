@@ -189,7 +189,7 @@ export default function OrderDetailsScreen() {
         .catch((error) => {
           console.error('Error opening Google Maps:', error);
           Alert.alert('Error', 'Failed to open Google Maps');
-        });
+      });
     } else {
       Alert.alert('Error', 'Restaurant location not available');
     }
@@ -234,7 +234,7 @@ export default function OrderDetailsScreen() {
         .catch((error) => {
           console.error('Error opening Google Maps:', error);
           Alert.alert('Error', 'Failed to open Google Maps');
-        });
+      });
     } else {
       Alert.alert('Error', 'Delivery location not available');
     }
