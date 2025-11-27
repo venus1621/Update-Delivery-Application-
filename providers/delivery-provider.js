@@ -740,7 +740,12 @@ export const DeliveryProvider = ({ children }) => {
             accuracy: currentLocation.accuracy || 10,
             timestamp: currentLocation.timestamp,
             requestType: reason,
-            requestedBy: requestedBy
+            requestedBy: requestedBy,
+            deliveryPersonId: userId,
+            deliveryPersonName: user?.firstName && user?.lastName 
+              ? `${user.firstName} ${user.lastName}` 
+              : 'Delivery Person',
+            deliveryPersonPhone: user?.phone || 'N/A',
           },
         });
         logger.log(`✅ Location sent to admin ${requestedBy}`);
