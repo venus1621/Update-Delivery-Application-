@@ -13,6 +13,7 @@ import { isNotificationSoundEnabled } from '../utils/notification-settings';
 import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
+import proximityService from "../services/proximity-service";
 import { transformOrderLocations } from '../utils/location-utils';
 import { logger } from '../utils/logger';
 import * as DeliveryAPI from '../services/delivery-api';
@@ -81,12 +82,8 @@ export const DeliveryProvider = ({ children }) => {
 
   const socketRef = useRef(null);
   const locationUnsubscribeRef = useRef(null);
-  const locationIntervalRef = useRef(null); // Ref for proximity check interval
   const periodicLocationIntervalRef = useRef(null); // Ref for periodic location updates (customer tracking)
-  const proximityNotifiedRef = useRef(new Set()); // Track which orders have been notified
-  const soundObjectRef = useRef(null); // Ref for alarm sound object
   const notificationSoundRef = useRef(null); // Ref for new order notification sound
-  const vibrationIntervalRef = useRef(null); // Ref for continuous vibration
   const isPeriodicTrackingActive = useRef(false); // Track if customer is actively tracking
 
   // 🗄️ Cache Utility Functions
@@ -136,81 +133,6 @@ export const DeliveryProvider = ({ children }) => {
       }));
     }
   }, []);
-  
-
-  // 📳 Start continuous vibration
-  const startContinuousVibration = useCallback(() => {
-    // Clear any existing vibration interval
-    if (vibrationIntervalRef.current) {
-      clearInterval(vibrationIntervalRef.current);
-    }
-
-    // Vibrate immediately
-    Vibration.vibrate(1000);
-
-    // Set up continuous vibration (every 2 seconds)
-    vibrationIntervalRef.current = setInterval(() => {
-      Vibration.vibrate(1000);
-    }, 2000);
-  }, []);
-
-  // 🔇 Stop proximity alarm and vibration
-  const stopProximityAlarm = useCallback(async () => {
-    try {
-      // Stop sound
-      if (soundObjectRef.current) {
-        await soundObjectRef.current.stopAsync();
-        await soundObjectRef.current.unloadAsync();
-        soundObjectRef.current = null;
-      }
-
-      // Stop vibration
-      if (vibrationIntervalRef.current) {
-        clearInterval(vibrationIntervalRef.current);
-        vibrationIntervalRef.current = null;
-      }
-      Vibration.cancel(); // Cancel any ongoing vibration
-      
-    } catch (err) {
-      logger.error('❌ Error stopping alarm:', err);
-    }
-  }, []);
-
-  // 🔊 Play continuous alarm sound (ringing)
-  const playProximityAlarm = useCallback(async () => {
-    try {
-      // Check if notification sounds are enabled
-      const soundEnabled = await isNotificationSoundEnabled();
-      
-      if (!soundEnabled) {
-        startContinuousVibration();
-        return;
-      }
-
-      // Stop any existing sound
-      await stopProximityAlarm();
-
-      // Create alarm sound - using system default notification sound
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' }, // Default alarm sound
-        { 
-          shouldPlay: true,
-          isLooping: true, // Continuous ringing
-          volume: 1.0
-        }
-      );
-      
-      soundObjectRef.current = sound;
-
-      // Start continuous vibration pattern
-      startContinuousVibration();
-      
-    } catch (err) {
-      logger.error('❌ Error playing alarm:', err);
-      // Fallback to continuous vibration only
-      startContinuousVibration();
-    }
-  }, [stopProximityAlarm, startContinuousVibration]);
 
   // 🔔 Play new order notification sound
   const playNewOrderNotification = useCallback(async () => {
@@ -326,13 +248,8 @@ export const DeliveryProvider = ({ children }) => {
       if (locationUnsubscribeRef.current) {
         locationUnsubscribeRef.current();
       }
-      // Clear location sending interval
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
       // Stop alarm and vibration
-      stopProximityAlarm();
+      proximityService.stopProximityAlarm();
       
       // Clean up notification sound
       if (notificationSoundRef.current) {
@@ -345,25 +262,24 @@ export const DeliveryProvider = ({ children }) => {
   // 🚨 Force online and location on when there's ANY active order
   useEffect(() => {
     const checkAndForceDeliveryMode = async () => {
-      // Check if there's any active order
       if (!state.activeOrder) return;
-      
+  
       const hasActiveOrder = Array.isArray(state.activeOrder) 
         ? state.activeOrder.length > 0 
         : true;
-      
+  
       if (hasActiveOrder) {
         let needsAlert = false;
         let alertMessage = '';
-        
-        // Force online if offline
+  
+        // Force online
         if (!state.isOnline) {
           needsAlert = true;
           alertMessage += '📶 Going ONLINE for active order\n';
           setState((prev) => ({ ...prev, isOnline: true }));
         }
-        
-        // Force location tracking if disabled
+  
+        // Force location tracking
         if (!state.isLocationTracking) {
           needsAlert = true;
           alertMessage += '📍 Enabling LOCATION for order tracking\n';
@@ -375,153 +291,64 @@ export const DeliveryProvider = ({ children }) => {
               locationError: null
             }));
           } catch (err) {
-            logger.error('Error forcing location on:', err);
+            logger.error('Error forcing location:', err);
+  
+            // Still show important alert if location fails
             Alert.alert(
               "⚠️ Location Required",
-              "Failed to enable location tracking. Please enable location permissions in your device settings for order tracking.",
-              [{ text: 'OK', style: 'default' }]
+              "Please enable location permissions from Settings.",
+              [{ text: 'OK' }]
             );
           }
         }
-        
-        // Show alert if we had to force anything
-        if (needsAlert) {
-          Alert.alert(
-            "🚚 Active Order Mode",
-            `${alertMessage}\nYou cannot go offline or turn off location while you have an active order.\n\n✅ These will be automatically enabled until you complete your order.`,
-            [{ text: 'Got it', style: 'default' }]
-          );
+  
+        // Instead of Alert.alert, use Toast
+        if (needsAlert && alertMessage) {
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(
+              alertMessage.replace(/\n/g, '  '),
+              ToastAndroid.LONG
+            );
+          } else {
+            // iOS fallback: no blocking alert
+            console.log("INFO:", alertMessage);
+          }
         }
       }
     };
-    
+  
     checkAndForceDeliveryMode();
   }, [state.activeOrder, state.isOnline, state.isLocationTracking]);
 
-  // 🔔 Proximity Alert Function - Play alarm when near destination
-  const checkProximityAndAlert = useCallback(async (order, currentLocation, orderId) => {
-    try {
-      // 1. Pick destination from possible fields
-      const rawDest =
-        order.destinationLocation ||
-        order.deliveryLocation ||
-        order.deliverLocation ||
-        order.customerLocation;
-  
-      if (!rawDest) return;
-  
-      // 2. Convert GeoJSON -> { lat, lng }
-      let destination = null;
-  
-      if (rawDest.type === "Point" && Array.isArray(rawDest.coordinates)) {
-        destination = {
-          lat: rawDest.coordinates[1],
-          lng: rawDest.coordinates[0]
-        };
-      } else if (rawDest.lat && rawDest.lng) {
-        destination = rawDest;
-      } else {
-        return; // no valid destination
-      }
-  
-      // 3. Now calculate distance
-      const distance = locationService.calculateDistance(
-        currentLocation.latitude,
-        currentLocation.longitude,
-        destination.lat,
-        destination.lng
-      );
-  
-      const distanceInMeters = distance * 1000;
-      const PROXIMITY_THRESHOLD = 200;
-  
-      // 4. Inside range
-      if (distanceInMeters <= PROXIMITY_THRESHOLD) {
-        if (proximityNotifiedRef.current.has(orderId)) return;
-  
-        proximityNotifiedRef.current.add(orderId);
-  
-        await playProximityAlarm();
-  
-        Alert.alert(
-          "🎯 Approaching Destination!",
-          `You are ${Math.round(distanceInMeters)} meters away.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || 'Customer'}`,
-          [
-            {
-              text: "Got it!",
-              onPress: () => stopProximityAlarm()
-            }
-          ],
-          {
-            cancelable: false,
-            onDismiss: () => stopProximityAlarm()
-          }
-        );
-      }
-  
-      // 5. Leaving area → reset notification
-      if (distanceInMeters > PROXIMITY_THRESHOLD * 1.5) {
-        proximityNotifiedRef.current.delete(orderId);
-      }
-  
-    } catch (err) {
-      logger.error('❌ Error checking proximity:', err);
-    }
-  }, []);
-  
-
-
-  // 📍 Location update interval for proximity checks only (no automatic periodic updates)
+  // 📍 Proximity checking using proximity service
   useEffect(() => {
     if (!userId || !state.isLocationTracking || !state.activeOrder) {
-      // Clear interval if not tracking or no active order
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
+      // Stop proximity checking if not tracking or no active order
+      proximityService.stopProximityChecking();
       return;
     }
 
-    // Proximity checks: every 5 seconds (for safety alerts)
-    const proximityCheckIntervalMs = 5000; // 5 seconds
-
-    // Start interval for proximity checks only
-    locationIntervalRef.current = setInterval(async () => {
-      const currentLocation = locationService.getCurrentLocation();
-      if (currentLocation) {
-        
-        // Check proximity for all active orders
-        const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
-                             (state.activeOrder ? [state.activeOrder] : []);
-
-        if (activeOrders.length === 0) {
-          return;
-        }
-
-        
-        console.log("--------------------------------");
-        console.log('deliveryLocatifdsfsdons');
-       console.log(activeOrders);
-      
-
-        // ⚠️ Check proximity to destination and trigger alarm if close (runs every 5 seconds)
-        for (const order of activeOrders) {
-          const orderId = order._id || order.id || order.orderId || order.orderCode;
-          if (orderId) {
-            await checkProximityAndAlert(order, currentLocation, orderId);
-          }
-        }
-      }
-    }, proximityCheckIntervalMs); // Run every 5 seconds for proximity checks
-
-    // Cleanup interval on unmount or dependency change
-    return () => {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
+    // Helper function to get active orders as array
+    const getActiveOrders = () => {
+      const activeOrders = Array.isArray(state.activeOrder) 
+        ? state.activeOrder 
+        : (state.activeOrder ? [state.activeOrder] : []);
+      return activeOrders;
     };
-  }, [userId, state.isLocationTracking, state.activeOrder, checkProximityAndAlert]);
+
+    // Helper function to get current location
+    const getCurrentLocation = () => {
+      return locationService.getCurrentLocation();
+    };
+
+    // Start proximity checking
+    proximityService.startProximityChecking(getActiveOrders, getCurrentLocation);
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      proximityService.stopProximityChecking();
+    };
+  }, [userId, state.isLocationTracking, state.activeOrder]);
 
   // 🔄 Start periodic location updates (called when customer requests tracking)
   const startPeriodicLocationUpdates = useCallback((customerId, orderId) => {
@@ -782,11 +609,8 @@ export const DeliveryProvider = ({ children }) => {
 
     socket.on("disconnect", () => {
       setState((prev) => ({ ...prev, isConnected: false }));
-      // Clear location interval on disconnect
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
+      // Stop proximity checking on disconnect
+      proximityService.stopProximityChecking();
       // Clear periodic location updates on disconnect
       stopPeriodicLocationUpdates();
     });
@@ -1278,17 +1102,11 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
         socketRef.current = null;
       }
       
-      // Clear location interval
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-      
       // Clear periodic location updates
       stopPeriodicLocationUpdates();
       
       // Stop proximity alarm and vibration
-      await stopProximityAlarm();
+      await proximityService.stopProximityAlarm();
       
       // Clean up notification sound
       if (notificationSoundRef.current) {
@@ -1597,11 +1415,8 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       ...prev, 
       isLocationTracking: false
     }));
-    // Clear interval when stopping tracking
-    if (locationIntervalRef.current) {
-      clearInterval(locationIntervalRef.current);
-      locationIntervalRef.current = null;
-    }
+    // Stop proximity checking when stopping tracking
+    proximityService.stopProximityChecking();
   }, [hasActiveDelivery]);
 
   const getCurrentLocation = useCallback(() => {

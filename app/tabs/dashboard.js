@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw, Scan } from 'lucide-react-native';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
+import { useKeepAwake } from 'expo-keep-awake';
 import { router } from 'expo-router';
 import OrderModal from '../../components/OrderModal';
 import VerificationModal from '../../components/VerificationModal';
@@ -58,7 +59,7 @@ export default function DashboardScreen() {
     fetchAvailableOrders,
     fetchDeliveryHistory,
   } = useDelivery();
-
+  useKeepAwake();
   const { user, checkAuthStatus } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
