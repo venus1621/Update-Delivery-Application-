@@ -137,6 +137,7 @@ export const DeliveryProvider = ({ children }) => {
     }
   }, []);
   
+
   // 📳 Start continuous vibration
   const startContinuousVibration = useCallback(() => {
     // Clear any existing vibration interval
@@ -400,67 +401,74 @@ export const DeliveryProvider = ({ children }) => {
   // 🔔 Proximity Alert Function - Play alarm when near destination
   const checkProximityAndAlert = useCallback(async (order, currentLocation, orderId) => {
     try {
-      // Get destination location
-      const destination = order.destinationLocation || order.deliveryLocation || order.deliverLocation || order.customerLocation;
-      
-      if (!destination || !destination.lat || !destination.lng) {
-        return; // No destination available
+      // 1. Pick destination from possible fields
+      const rawDest =
+        order.destinationLocation ||
+        order.deliveryLocation ||
+        order.deliverLocation ||
+        order.customerLocation;
+  
+      if (!rawDest) return;
+  
+      // 2. Convert GeoJSON -> { lat, lng }
+      let destination = null;
+  
+      if (rawDest.type === "Point" && Array.isArray(rawDest.coordinates)) {
+        destination = {
+          lat: rawDest.coordinates[1],
+          lng: rawDest.coordinates[0]
+        };
+      } else if (rawDest.lat && rawDest.lng) {
+        destination = rawDest;
+      } else {
+        return; // no valid destination
       }
-
-      // Calculate distance to destination
+  
+      // 3. Now calculate distance
       const distance = locationService.calculateDistance(
         currentLocation.latitude,
         currentLocation.longitude,
         destination.lat,
         destination.lng
       );
-
-      const distanceInMeters = distance * 1000; // Convert km to meters
-      const PROXIMITY_THRESHOLD = 200; // 200 meters
-
-      // Check if we're within proximity threshold
+  
+      const distanceInMeters = distance * 1000;
+      const PROXIMITY_THRESHOLD = 200;
+  
+      // 4. Inside range
       if (distanceInMeters <= PROXIMITY_THRESHOLD) {
-        // Check if we've already notified for this order
-        if (proximityNotifiedRef.current.has(orderId)) {
-          return; // Already notified
-        }
-
-        // Mark as notified
+        if (proximityNotifiedRef.current.has(orderId)) return;
+  
         proximityNotifiedRef.current.add(orderId);
-        
-
-        // Play continuous ringing alarm sound
+  
         await playProximityAlarm();
-
-        // Show alert dialog with stop alarm on dismiss
+  
         Alert.alert(
           "🎯 Approaching Destination!",
-          `You are ${Math.round(distanceInMeters)} meters away from the delivery location.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || 'Customer'}`,
+          `You are ${Math.round(distanceInMeters)} meters away.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || 'Customer'}`,
           [
             {
               text: "Got it!",
-              onPress: () => {
-                stopProximityAlarm();
-              }
+              onPress: () => stopProximityAlarm()
             }
           ],
-          { 
+          {
             cancelable: false,
-            onDismiss: () => {
-              stopProximityAlarm();
-            }
+            onDismiss: () => stopProximityAlarm()
           }
         );
-      } else {
-        // If distance is more than threshold, allow future notifications
-        if (distanceInMeters > PROXIMITY_THRESHOLD * 1.5) {
-          proximityNotifiedRef.current.delete(orderId);
-        }
       }
+  
+      // 5. Leaving area → reset notification
+      if (distanceInMeters > PROXIMITY_THRESHOLD * 1.5) {
+        proximityNotifiedRef.current.delete(orderId);
+      }
+  
     } catch (err) {
       logger.error('❌ Error checking proximity:', err);
     }
   }, []);
+  
 
 
   // 📍 Location update interval for proximity checks only (no automatic periodic updates)
@@ -489,6 +497,12 @@ export const DeliveryProvider = ({ children }) => {
         if (activeOrders.length === 0) {
           return;
         }
+
+        
+        console.log("--------------------------------");
+        console.log('deliveryLocatifdsfsdons');
+       console.log(activeOrders);
+      
 
         // ⚠️ Check proximity to destination and trigger alarm if close (runs every 5 seconds)
         for (const order of activeOrders) {

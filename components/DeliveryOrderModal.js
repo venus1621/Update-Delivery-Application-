@@ -188,7 +188,7 @@ export default function DeliveryOrderModal({
               </View>
               <View style={styles.locationCard}>
                 <View style={styles.locationRow}>
-                  <View style={styles.locationDot} style={[styles.locationDot, { backgroundColor: '#10B981' }]} />
+                  <View style={[styles.locationDot, { backgroundColor: '#10B981' }]} />
                   <View style={styles.locationInfo}>
                     <Text style={styles.locationLabel}>From Restaurant</Text>
                     {order.restaurantLocation?.coordinates && (
