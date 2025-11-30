@@ -3,6 +3,11 @@ import { Audio } from "expo-av";
 import { isNotificationSoundEnabled } from "../utils/notification-settings";
 import locationService from "./location-service";
 import { logger } from "../utils/logger";
+import {
+  startBackgroundLocationUpdates,
+  stopBackgroundLocationUpdates,
+  isBackgroundLocationRunning,
+} from "./background-location-task";
 
 class ProximityService {
   constructor() {
@@ -13,6 +18,9 @@ class ProximityService {
     this.intervalRef = null;
     this.soundObjectRef = null;
     this.vibrationIntervalRef = null;
+    this.getActiveOrdersCallback = null;
+    this.getCurrentLocationCallback = null;
+    this.isBackgroundMode = false;
     
     // Initialize audio mode
     this.initAudio();
@@ -24,8 +32,10 @@ class ProximityService {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+        staysActiveInBackground: true, // ✅ Enable background audio
         shouldDuckAndroid: true,
+        interruptionModeIOS: 1, // Do not mix with other audio
+        interruptionModeAndroid: 1, // Do not mix with other audio
       });
     } catch (e) {
       logger.error("Audio init error:", e);
@@ -215,6 +225,10 @@ class ProximityService {
   startProximityLoop(getActiveOrders, getCurrentLocation) {
     if (this.intervalRef) clearInterval(this.intervalRef);
 
+    // Store callbacks for background mode
+    this.getActiveOrdersCallback = getActiveOrders;
+    this.getCurrentLocationCallback = getCurrentLocation;
+
     this.intervalRef = setInterval(async () => {
       const location = getCurrentLocation();
       if (!location) return;
@@ -228,6 +242,59 @@ class ProximityService {
         await this.checkProximity(order, location);
       }
     }, this.CHECK_INTERVAL);
+  }
+
+  // ------------------------------------------------
+  // 🌙 Background Location Handler
+  // ------------------------------------------------
+  async handleBackgroundLocationUpdate(location) {
+    if (!this.getActiveOrdersCallback) return;
+
+    const orders = this.getActiveOrdersCallback();
+    if (!orders || orders.length === 0) return;
+
+    logger.log("🔍 [BACKGROUND] Checking proximity for", orders.length, "order(s)");
+
+    for (const order of orders) {
+      await this.checkProximity(order, location);
+    }
+  }
+
+  // ------------------------------------------------
+  // 🚀 Start Background Tracking
+  // ------------------------------------------------
+  async startBackgroundTracking(getActiveOrders, getCurrentLocation) {
+    this.getActiveOrdersCallback = getActiveOrders;
+    this.getCurrentLocationCallback = getCurrentLocation;
+    
+    const started = await startBackgroundLocationUpdates(
+      this.handleBackgroundLocationUpdate.bind(this)
+    );
+    
+    if (started) {
+      this.isBackgroundMode = true;
+      logger.log("✅ Background proximity tracking enabled");
+    } else {
+      logger.error("❌ Failed to enable background tracking");
+    }
+    
+    return started;
+  }
+
+  // ------------------------------------------------
+  // 🛑 Stop Background Tracking
+  // ------------------------------------------------
+  async stopBackgroundTracking() {
+    await stopBackgroundLocationUpdates();
+    this.isBackgroundMode = false;
+    logger.log("🛑 Background proximity tracking disabled");
+  }
+
+  // ------------------------------------------------
+  // 📊 Check if background tracking is active
+  // ------------------------------------------------
+  async isBackgroundTrackingActive() {
+    return await isBackgroundLocationRunning();
   }
 
   stopProximityLoop() {
@@ -261,8 +328,11 @@ class ProximityService {
   // Cleanup all resources
   cleanup = async () => {
     this.stopProximityLoop();
+    await this.stopBackgroundTracking();
     await this.stopProximityAlarm();
     this.notifiedOrders.clear();
+    this.getActiveOrdersCallback = null;
+    this.getCurrentLocationCallback = null;
   };
 }
 

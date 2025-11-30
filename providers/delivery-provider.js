@@ -14,6 +14,7 @@ import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 import proximityService from "../services/proximity-service";
+import orderNotificationService from "../services/order-notification-service";
 import { transformOrderLocations } from '../utils/location-utils';
 import { logger } from '../utils/logger';
 import * as DeliveryAPI from '../services/delivery-api';
@@ -230,6 +231,10 @@ export const DeliveryProvider = ({ children }) => {
 
         // Start location tracking
         await locationService.startLocationTracking();
+
+        // Initialize notification service for background notifications
+        await orderNotificationService.initNotifications();
+        logger.log('✅ Order notification service initialized');
       } catch (err) {
         const message = err?.message || String(err) || 'Unknown error';
         logger.error('Error initializing location tracking:', err);
@@ -250,6 +255,9 @@ export const DeliveryProvider = ({ children }) => {
       }
       // Stop alarm and vibration
       proximityService.stopProximityAlarm();
+      
+      // Clean up notification service
+      orderNotificationService.cleanup();
       
       // Clean up notification sound
       if (notificationSoundRef.current) {
@@ -320,14 +328,8 @@ export const DeliveryProvider = ({ children }) => {
     checkAndForceDeliveryMode();
   }, [state.activeOrder, state.isOnline, state.isLocationTracking]);
 
-  // 📍 Proximity checking using proximity service
+  // 📍 Proximity checking using proximity service (BACKGROUND MODE)
   useEffect(() => {
-    if (!userId || !state.isLocationTracking || !state.activeOrder) {
-      // Stop proximity checking if not tracking or no active order
-      proximityService.stopProximityChecking();
-      return;
-    }
-
     // Helper function to get active orders as array
     const getActiveOrders = () => {
       const activeOrders = Array.isArray(state.activeOrder) 
@@ -341,11 +343,39 @@ export const DeliveryProvider = ({ children }) => {
       return locationService.getCurrentLocation();
     };
 
-    // Start proximity checking
-    proximityService.startProximityChecking(getActiveOrders, getCurrentLocation);
+    if (!userId || !state.isLocationTracking || !state.activeOrder) {
+      // Stop proximity checking if not tracking or no active order
+      proximityService.stopBackgroundTracking();
+      return;
+    }
+
+    // Start background proximity tracking (works even when app is minimized/screen off)
+    const startTracking = async () => {
+      try {
+        const success = await proximityService.startBackgroundTracking(
+          getActiveOrders, 
+          getCurrentLocation
+        );
+        
+        if (success) {
+          logger.log('✅ Background proximity tracking started');
+        } else {
+          logger.warn('⚠️ Background tracking failed, falling back to foreground mode');
+          // Fallback to foreground-only tracking
+          proximityService.startProximityChecking(getActiveOrders, getCurrentLocation);
+        }
+      } catch (error) {
+        logger.error('❌ Error starting background tracking:', error);
+        // Fallback to foreground-only tracking
+        proximityService.startProximityChecking(getActiveOrders, getCurrentLocation);
+      }
+    };
+
+    startTracking();
 
     // Cleanup on unmount or dependency change
     return () => {
+      proximityService.stopBackgroundTracking();
       proximityService.stopProximityChecking();
     };
   }, [userId, state.isLocationTracking, state.activeOrder]);
@@ -473,7 +503,7 @@ export const DeliveryProvider = ({ children }) => {
     socket.on("message", (message) => {
     });
 
-    socket.on("deliveryMessage", (message) => {
+    socket.on("deliveryMessage", async (message) => {
       logger.log(`📦 Delivery message received:`, message);
     
       // Parse message if it's a string
@@ -499,7 +529,10 @@ export const DeliveryProvider = ({ children }) => {
         currentDeliveryOrder: orderData,
       }));
       
-      // Play notification sound and vibrate
+      // Show background notification (works even when app is minimized/screen off)
+      await orderNotificationService.showNewOrderNotification(orderData);
+      
+      // Fallback: Play notification sound and vibrate (for older implementation)
       playNewOrderNotification();
       Vibration.vibrate([0, 500, 200, 500]);
     });
@@ -607,9 +640,10 @@ export const DeliveryProvider = ({ children }) => {
       stopPeriodicLocationUpdates();
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       setState((prev) => ({ ...prev, isConnected: false }));
-      // Stop proximity checking on disconnect
+      // Stop proximity checking on disconnect (both background and foreground)
+      await proximityService.stopBackgroundTracking();
       proximityService.stopProximityChecking();
       // Clear periodic location updates on disconnect
       stopPeriodicLocationUpdates();
@@ -1399,7 +1433,7 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
     }
   }, []);
 
-  const stopLocationTracking = useCallback(() => {
+  const stopLocationTracking = useCallback(async () => {
     // Check if trying to stop location while having an active order
     if (hasActiveDelivery()) {
       Alert.alert(
@@ -1415,7 +1449,8 @@ const fetchDeliveryHistory = useCallback(async (forceRefresh = false) => {
       ...prev, 
       isLocationTracking: false
     }));
-    // Stop proximity checking when stopping tracking
+    // Stop proximity checking when stopping tracking (both background and foreground)
+    await proximityService.stopBackgroundTracking();
     proximityService.stopProximityChecking();
   }, [hasActiveDelivery]);
 
