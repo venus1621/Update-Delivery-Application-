@@ -4,7 +4,7 @@
 import { logger } from '../utils/logger';
 import { transformOrderLocations } from '../utils/location-utils';
 
-const API_BASE_URL = 'https://gebeta-delivery1.onrender.com/api/v1';
+const API_BASE_URL = 'https://api.bahirandelivery.cloud/api/v1';
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {

@@ -488,7 +488,7 @@ export const DeliveryProvider = ({ children }) => {
       return;
     }
 
-    const socket = io("https://gebeta-delivery1.onrender.com", {
+    const socket = io("https://api.bahirandelivery.cloud", {
       transports: ["websocket"],
       auth: {
         token: token // Send JWT token for authentication
@@ -1199,7 +1199,7 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
         return false;
       }
 
-      const s = io("https://gebeta-delivery1.onrender.com", {
+      const s = io("https://api.bahirandelivery.cloud", {
         transports: ["websocket"],
         auth: { token }
       });

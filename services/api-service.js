@@ -1,7 +1,7 @@
 import { cacheStorage } from '../utils/cache-storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'https://gebeta-delivery1.onrender.com/api/v1';
+const API_BASE_URL = 'https://api.bahirandelivery.cloud/api/v1';
 
 class ApiService {
   constructor() {

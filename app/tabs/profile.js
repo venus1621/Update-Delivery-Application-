@@ -365,7 +365,7 @@ export default function ProfileScreen() {
     setIsChangingPassword(true);
 
     try {
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/updateMyPassword', {
+      const response = await fetch('https://api.bahirandelivery.cloud/api/v1/users/updateMyPassword', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

@@ -130,7 +130,7 @@ export default function LoginScreen() {
 
     try {
       const fullPhone = `+251${resetPhone.trim()}`;
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/requestResetOTP', {
+      const response = await fetch('https://api.bahirandelivery.cloud/api/v1/users/requestResetOTP', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +199,7 @@ export default function LoginScreen() {
 
     try {
       const fullPhone = `+251${resetPhone.trim()}`;
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/resetPasswordOTP', {
+      const response = await fetch('https://api.bahirandelivery.cloud/api/v1/users/resetPasswordOTP', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

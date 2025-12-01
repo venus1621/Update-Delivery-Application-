@@ -1,7 +1,7 @@
 // Balance and Transaction History Service
 // Handles all balance-related API calls
 
-const BASE_URL = 'https://gebeta-delivery1.onrender.com';
+const BASE_URL = 'https://api.bahirandelivery.cloud';
 
 /**
  * Get current balance
