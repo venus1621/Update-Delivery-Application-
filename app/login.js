@@ -11,11 +11,12 @@ import {
   Keyboard,
   Modal,
   ScrollView,
+  TouchableWithoutFeedback,
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone, X, Key, FileText, CheckSquare, Square } from 'lucide-react-native';
+import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone, X, Key, FileText } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -43,9 +44,8 @@ export default function LoginScreen() {
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
 
-  // Terms and Conditions States
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [showTermsModal, setShowTermsModal] = useState(false);
+  // Privacy Policy State
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   // Validation logic
   const validation = useMemo(() => {
@@ -78,11 +78,6 @@ export default function LoginScreen() {
       return;
     }
 
-    if (!acceptedTerms) {
-      setErrorMessage('Please accept the Terms and Conditions to continue');
-      return;
-    }
-
     // Clear error and close keyboard
     setErrorMessage('');
     Keyboard.dismiss();
@@ -103,7 +98,7 @@ export default function LoginScreen() {
     } else {
       setErrorMessage(result.message || 'Invalid credentials. Please try again.');
     }
-  }, [phone, password, login, acceptedTerms]);
+  }, [phone, password, login]);
 
   useEffect(() => {
     if (errorMessage || successMessage) {
@@ -397,61 +392,11 @@ export default function LoginScreen() {
                     <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                   </TouchableOpacity>
 
-                  {/* Terms and Conditions Checkbox */}
-                  <View style={styles.termsContainer}>
-                    <TouchableOpacity
-                      onPress={() => setAcceptedTerms(!acceptedTerms)}
-                      style={styles.checkboxContainer}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
-                        {acceptedTerms && (
-                          <CheckCircle color="#FFFFFF" size={16} strokeWidth={3} />
-                        )}
-                      </View>
-                      <View style={styles.termsTextContainer}>
-                        <Text style={styles.termsText}>
-                          I accept the{' '}
-                          <Text
-                            style={styles.termsLink}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              setShowTermsModal(true);
-                            }}
-                          >
-                            Terms and Conditions
-                          </Text>
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Terms and Conditions Checkbox */}
-                  <View style={styles.termsContainer}>
-                    <TouchableOpacity
-                      onPress={() => setAcceptedTerms(!acceptedTerms)}
-                      style={styles.checkboxContainer}
-                      activeOpacity={0.7}
-                    >
-                      {acceptedTerms ? (
-                        <CheckSquare color="#667eea" size={22} />
-                      ) : (
-                        <Square color="#6b7280" size={22} />
-                      )}
-                    </TouchableOpacity>
-                    <View style={styles.termsTextContainer}>
-                      <Text style={styles.termsText}>I agree to the </Text>
-                      <TouchableOpacity onPress={() => setShowTermsModal(true)}>
-                        <Text style={styles.termsLink}>Terms and Conditions</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
                   {/* Login Button */}
                   <TouchableOpacity
-                    style={[styles.loginButton, !acceptedTerms && styles.loginButtonDisabled]}
+                    style={styles.loginButton}
                     onPress={handleLogin}
-                    disabled={isLoading || !acceptedTerms}
+                    disabled={isLoading}
                     testID="login-button"
                     activeOpacity={0.7}
                   >
@@ -486,6 +431,16 @@ export default function LoginScreen() {
                 >
                   <Text style={styles.contactText}>+251 919 444 499</Text>
                 </TouchableOpacity>
+                
+                {/* Privacy Policy Link */}
+                <View style={styles.legalLinksContainer}>
+                  <TouchableOpacity
+                    onPress={() => setShowPrivacyModal(true)}
+                    style={styles.legalLink}
+                  >
+                    <Text style={styles.legalLinkText}>Privacy Policy</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Message Banner */}
@@ -522,12 +477,15 @@ export default function LoginScreen() {
         onRequestClose={handleCloseForgotPassword}
         statusBarTranslucent
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalKeyboardView}
-          >
-            <View style={styles.modalContainer}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.modalContainer}>
               <View style={styles.modalContent}>
                 {/* Modal Header */}
                 <View style={styles.modalHeader}>
@@ -739,26 +697,28 @@ export default function LoginScreen() {
                 </ScrollView>
               </View>
             </View>
-          </KeyboardAvoidingView>
-        </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* Terms and Conditions Modal */}
+      {/* Privacy Policy Modal */}
       <Modal
-        visible={showTermsModal}
+        visible={showPrivacyModal}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setShowTermsModal(false)}
+        onRequestClose={() => setShowPrivacyModal(false)}
         statusBarTranslucent
       >
         <SafeAreaView style={styles.termsModalContainer}>
           <View style={styles.termsModalHeader}>
             <View style={styles.termsModalTitleContainer}>
               <FileText color="#667eea" size={28} />
-              <Text style={styles.termsModalTitle}>Terms and Conditions</Text>
+              <Text style={styles.termsModalTitle}>Privacy Policy</Text>
             </View>
             <TouchableOpacity
-              onPress={() => setShowTermsModal(false)}
+              onPress={() => setShowPrivacyModal(false)}
               style={styles.termsCloseButton}
               activeOpacity={0.7}
             >
@@ -767,102 +727,144 @@ export default function LoginScreen() {
           </View>
           
           <ScrollView style={styles.termsModalContent} showsVerticalScrollIndicator={true}>
-            <Text style={styles.termsEffectiveDate}>Effective Date: November 18, 2024</Text>
+            <Text style={styles.termsEffectiveDate}>Effective Date: December 3, 2025</Text>
             
-            <Text style={styles.termsWelcome}>Welcome to Bahiran Delivery</Text>
+            <Text style={styles.termsWelcome}>Welcome to Bahiran Delivery Driver App</Text>
             <Text style={styles.termsBodyText}>
-              These Terms and Conditions ("Terms", "Agreement") govern your use of the Bahiran Delivery Driver mobile application operated by Bahiran Delivery. By accessing or using our App, you agree to be bound by these Terms.
+              We are committed to protecting your privacy and ensuring the security of your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application for delivery services.
             </Text>
 
-            <Text style={styles.termsSectionTitle}>1. ACCEPTANCE OF TERMS</Text>
+            <Text style={styles.termsSectionTitle}>1. INFORMATION WE COLLECT</Text>
             <Text style={styles.termsBodyText}>
-              By registering as a delivery driver with Bahiran Delivery, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. This Agreement is governed by the laws of the Federal Democratic Republic of Ethiopia.
+              • Personal Information: Full name, phone number, email address, password{'\n'}
+              • Financial Information: Bank account details, transaction history, earnings{'\n'}
+              • Location Data: Precise location for navigation and delivery tracking{'\n'}
+              • Background Location: Continuous tracking when online with active deliveries{'\n'}
+              • Camera Access: For scanning QR codes for order verification{'\n'}
+              • Device Information: Device model, OS, unique identifiers{'\n'}
+              • Usage Data: Order history, app usage patterns, preferences
             </Text>
 
-            <Text style={styles.termsSectionTitle}>2. ELIGIBILITY</Text>
+            <Text style={styles.termsSectionTitle}>2. HOW WE USE YOUR INFORMATION</Text>
             <Text style={styles.termsBodyText}>
-              • You must be at least 18 years old{'\n'}
-              • You must be legally permitted to work in Ethiopia{'\n'}
-              • You must provide valid Ethiopian National ID{'\n'}
-              • You must have a valid driver's license (if using motorized vehicle){'\n'}
-              • You must pass background verification
+              • Process and manage delivery orders{'\n'}
+              • Navigate to pickup and delivery locations{'\n'}
+              • Track delivery progress in real-time{'\n'}
+              • Calculate delivery fees and earnings{'\n'}
+              • Process withdrawal requests to your bank account{'\n'}
+              • Send order notifications and proximity alerts{'\n'}
+              • Verify your identity and prevent fraud{'\n'}
+              • Improve app performance and user experience
             </Text>
 
-            <Text style={styles.termsSectionTitle}>3. DRIVER RESPONSIBILITIES</Text>
+            <Text style={styles.termsSectionTitle}>3. LOCATION TRACKING</Text>
             <Text style={styles.termsBodyText}>
-              • Maintain valid licenses and permits{'\n'}
-              • Provide safe and professional service{'\n'}
-              • Follow traffic laws and regulations{'\n'}
-              • Protect customer privacy and order confidentiality{'\n'}
-              • Use the app honestly and accurately{'\n'}
-              • Maintain vehicle in good condition
+              We collect precise location information to enable delivery services:{'\n\n'}
+              • Foreground Location: When actively using the app for navigation{'\n'}
+              • Background Location: Continuous tracking when online with active deliveries{'\n'}
+              • Updates every 5 seconds or 50 meters{'\n'}
+              • Used for navigation, order tracking, and proximity alerts{'\n'}
+              • Shared with customers when they track their orders{'\n\n'}
+              Location access is required for core app functionality.
             </Text>
 
-            <Text style={styles.termsSectionTitle}>4. PAYMENT TERMS</Text>
+            <Text style={styles.termsSectionTitle}>4. HOW WE SHARE YOUR INFORMATION</Text>
             <Text style={styles.termsBodyText}>
-              • Payments processed weekly to your registered bank account{'\n'}
-              • Earnings based on deliveries completed{'\n'}
-              • Company retains right to deduct fees and penalties{'\n'}
-              • All payments subject to Ethiopian tax laws
+              • With Customers: Your name, phone number, and real-time location during active orders{'\n'}
+              • With Restaurants: Your name and contact information for order coordination{'\n'}
+              • With Payment Processors: CBEBirr, Telebirr for processing withdrawals{'\n'}
+              • With Cloud Services: AWS/Google Cloud for data storage{'\n'}
+              • With Map Services: Google Maps for navigation{'\n'}
+              • Legal Requirements: When required by law or court orders
             </Text>
 
-            <Text style={styles.termsSectionTitle}>5. PROHIBITED CONDUCT</Text>
+            <Text style={styles.termsSectionTitle}>5. DATA SECURITY</Text>
             <Text style={styles.termsBodyText}>
-              • Fraudulent activity or misrepresentation{'\n'}
-              • Harassment of customers or merchants{'\n'}
-              • Discrimination of any kind{'\n'}
-              • Unauthorized use of customer information{'\n'}
-              • Operating under the influence of alcohol or drugs{'\n'}
-              • Accepting cash payments directly from customers
+              • Encryption: All sensitive data encrypted in transit (HTTPS/TLS) and at rest{'\n'}
+              • Secure Authentication: Password hashing and token-based authentication{'\n'}
+              • Access Controls: Limited employee access to personal data{'\n'}
+              • Regular Security Audits: Ongoing monitoring and vulnerability assessments
             </Text>
 
-            <Text style={styles.termsSectionTitle}>6. TERMINATION</Text>
+            <Text style={styles.termsSectionTitle}>6. YOUR RIGHTS</Text>
             <Text style={styles.termsBodyText}>
-              We reserve the right to suspend or terminate your account for violation of these terms, fraudulent activity, poor performance, or at our discretion. You may terminate your account by contacting us.
+              • Access: View and download your personal data{'\n'}
+              • Update: Modify your profile information at any time{'\n'}
+              • Delete: Request deletion of your account and data{'\n'}
+              • Export: Request a copy of your data in portable format{'\n'}
+              • Control Notifications: Enable/disable sound and push notifications
             </Text>
 
-            <Text style={styles.termsSectionTitle}>7. LIABILITY</Text>
+            <Text style={styles.termsSectionTitle}>7. PERMISSIONS REQUIRED</Text>
             <Text style={styles.termsBodyText}>
-              You are an independent contractor. Bahiran Delivery is not liable for injuries, damages, or losses incurred during deliveries. You must maintain appropriate insurance coverage.
+              Android Permissions:{'\n'}
+              • ACCESS_FINE_LOCATION - Precise location for navigation{'\n'}
+              • ACCESS_BACKGROUND_LOCATION - Background tracking for deliveries{'\n'}
+              • CAMERA - QR code scanning for order verification{'\n'}
+              • POST_NOTIFICATIONS - Delivery alerts and notifications{'\n'}
+              • VIBRATE - Alert notifications{'\n'}
+              • FOREGROUND_SERVICE - Continuous location tracking when online{'\n\n'}
+              iOS Permissions:{'\n'}
+              • Location Always - For background location tracking{'\n'}
+              • Location When In Use - For navigation{'\n'}
+              • Camera - For QR code scanning{'\n'}
+              • Notifications - For order alerts and updates
             </Text>
 
-            <Text style={styles.termsSectionTitle}>8. PRIVACY</Text>
+            <Text style={styles.termsSectionTitle}>8. DATA RETENTION</Text>
             <Text style={styles.termsBodyText}>
-              Your use of the App is subject to our Privacy Policy. We collect and use location data, personal information, and delivery data as described in our Privacy Policy.
+              • Active Accounts: Data retained while account is active{'\n'}
+              • Deleted Accounts: Personal data deleted within 30 days{'\n'}
+              • Location Data: Retained for 90 days{'\n'}
+              • Transaction Records: Retained for 7 years as per regulations{'\n'}
+              • Order History: Retained for 2 years
             </Text>
 
-            <Text style={styles.termsSectionTitle}>9. GOVERNING LAW</Text>
+            <Text style={styles.termsSectionTitle}>9. CHILDREN'S PRIVACY</Text>
             <Text style={styles.termsBodyText}>
-              These Terms are governed by the laws of the Federal Democratic Republic of Ethiopia. Any disputes shall be resolved in Ethiopian courts.
+              Our service is not intended for individuals under the age of 18. We do not knowingly collect personal information from children under 18.
             </Text>
 
-            <Text style={styles.termsSectionTitle}>10. CONTACT</Text>
+            <Text style={styles.termsSectionTitle}>10. CHANGES TO THIS PRIVACY POLICY</Text>
             <Text style={styles.termsBodyText}>
-              For questions about these Terms:{'\n\n'}
-              Email: deliverygebeta@gmail.com{'\n'}
-              Phone: +251 919 444 499
+              We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy in the app and sending an email notification for material changes.
             </Text>
 
-            <Text style={styles.termsLastUpdated}>Last Updated: November 18, 2024</Text>
-            
-            <View style={styles.termsBottomPadding} />
+            <Text style={styles.termsSectionTitle}>11. CONTACT US</Text>
+            <Text style={styles.termsBodyText}>
+              If you have questions about this Privacy Policy, please contact us:{'\n\n'}
+              Email: privacy@bahirandelivery.com{'\n'}
+              Support: support@bahirandelivery.com{'\n'}
+              Phone: +251 (0) 931 386 887{'\n'}
+              Address: Addis Ababa, Ethiopia
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>CONSENT</Text>
+            <Text style={styles.termsBodyText}>
+              By using the Bahiran Delivery Driver App, you consent to our Privacy Policy and agree to its terms, including location tracking for delivery services and sharing your information with customers during active orders.
+            </Text>
+
+            <View style={styles.termsDivider} />
+
+            <Text style={styles.termsFooter}>
+              Version 1.0{'\n'}
+              Last Updated: December 3, 2025{'\n'}
+              © 2025 Bahiran Delivery. All rights reserved.
+            </Text>
           </ScrollView>
 
-          <View style={styles.termsModalFooter}>
+          {/* Close Button */}
+          <View style={styles.termsAcceptButtonContainer}>
             <TouchableOpacity
               style={styles.termsAcceptButton}
-              onPress={() => {
-                setAcceptedTerms(true);
-                setShowTermsModal(false);
-              }}
-              activeOpacity={0.7}
+              onPress={() => setShowPrivacyModal(false)}
+              activeOpacity={0.8}
             >
               <LinearGradient
                 colors={['#667eea', '#764ba2']}
                 style={styles.termsAcceptGradient}
               >
-                <CheckCircle color="#FFFFFF" size={20} />
-                <Text style={styles.termsAcceptButtonText}>Accept & Continue</Text>
+                <Text style={styles.termsAcceptButtonText}>Close</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -1040,6 +1042,37 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     textAlign: 'center',
   },
+  contactLink: {
+    marginTop: 8,
+  },
+  contactText: {
+    fontSize: 14,
+    color: '#ffffff',
+    textAlign: 'center',
+    textDecorationLine: 'underline',
+  },
+  legalLinksContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  legalLink: {
+    paddingHorizontal: 8,
+  },
+  legalLinkText: {
+    fontSize: 13,
+    color: '#ffffff',
+    textDecorationLine: 'underline',
+  },
+  legalSeparator: {
+    fontSize: 13,
+    color: '#e5e7eb',
+    marginHorizontal: 4,
+  },
   messageBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1102,6 +1135,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
+    paddingVertical: 20,
   },
   modalKeyboardView: {
     width: '100%',
@@ -1111,7 +1145,8 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    maxHeight: '90%',
+    maxWidth: 480,
+    maxHeight: '85%',
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     ...Platform.select({
@@ -1277,39 +1312,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e5e7eb',
   },
-  // Terms and Conditions Styles
-  termsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  checkboxContainer: {
-    marginRight: 12,
-  },
-  termsTextContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    flex: 1,
-  },
-  termsText: {
-    fontSize: 14,
-    color: '#6b7280',
-    lineHeight: 20,
-  },
-  termsLink: {
-    fontSize: 14,
-    color: '#667eea',
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-    lineHeight: 20,
-  },
-  loginButtonDisabled: {
-    opacity: 0.5,
-  },
-  // Terms Modal Styles
+  // Privacy Modal Styles (reused from Terms Modal)
   termsModalContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',

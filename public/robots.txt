@@ -1,0 +1,37 @@
+# Bahiran Delivery - robots.txt
+# Allow all crawlers to access all pages
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://bahirandelivery.com/sitemap.xml
+
+# Crawl-delay (optional, in seconds)
+Crawl-delay: 1
+
+# Specific bot rules
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+# Disallow paths that should not be indexed
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/
+Disallow: /static/
+
+# Allow important pages
+Allow: /privacy
+Allow: /terms
+Allow: /driver
+Allow: /app
+Allow: /about
+Allow: /contact
+Allow: /support
+

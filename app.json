@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Bahiran Delivery",
+    "name": "Bahran Delivery",
     "slug": "delivery-driver-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bahiran.deliverydriver.app",
+      "bundleIdentifier": "com.bahran.deliverydriver.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show your position on the map and help you navigate to delivery locations.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location in the background to track deliveries and update your position in real-time.",
@@ -32,7 +32,7 @@
       }
     },
     "android": {
-      "package": "com.bahiran.deliverydriver.app",
+      "package": "com.bahran.deliverydriver.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#667eea"
@@ -45,6 +45,7 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.WAKE_LOCK",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE"
       ],
@@ -63,15 +64,17 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Bahiran Delivery to use your location for tracking deliveries.",
-          "locationAlwaysPermission": "Allow Bahiran Delivery to use your location in the background for real-time delivery tracking.",
-          "locationWhenInUsePermission": "Allow Bahiran Delivery to use your location for navigation and delivery tracking."
+          "locationAlwaysAndWhenInUsePermission": "Allow Bahran Delivery to use your location for tracking deliveries.",
+          "locationAlwaysPermission": "Allow Bahran Delivery to use your location in the background for real-time delivery tracking.",
+          "locationWhenInUsePermission": "Allow Bahran Delivery to use your location for navigation and delivery tracking.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Bahiran Delivery to access your camera to scan QR codes."
+          "cameraPermission": "Allow Bahran Delivery to access your camera to scan QR codes."
         }
       ]
     ],
@@ -83,9 +86,10 @@
         "origin": false
       },
       "eas": {
-        "projectId": "ebbf4ca4-8e5a-4e37-801e-48d76da81a5d"
+        "projectId": "1075c8f9-5379-4837-ab2a-ff8dbcafeaad"
       }
     },
-    "owner": "venus16"
+    "privacy": "https://bahirandelivery.com/privacy",
+    "description": "Bahiran Delivery Driver App - Earn money by delivering food orders to customers. Real-time order tracking, navigation, and instant notifications."
   }
 }
