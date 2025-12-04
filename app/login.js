@@ -835,7 +835,7 @@ export default function LoginScreen() {
               If you have questions about this Privacy Policy, please contact us:{'\n\n'}
               Email: privacy@bahirandelivery.com{'\n'}
               Support: support@bahirandelivery.com{'\n'}
-              Phone: +251 (0) 931 386 887{'\n'}
+              Phone: +251 (0) 919444499{'\n'}
               Address: Addis Ababa, Ethiopia
             </Text>
 

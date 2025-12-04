@@ -81,15 +81,15 @@
     "experiments": {
       "typedRoutes": true
     },
+    "privacy": "https://bahirandelivery.com/privacy",
+    "description": "Bahiran Delivery Driver App - Earn money by delivering food orders to customers. Real-time order tracking, navigation, and instant notifications.",
     "extra": {
       "router": {
         "origin": false
       },
       "eas": {
-        "projectId": "1075c8f9-5379-4837-ab2a-ff8dbcafeaad"
+        "projectId": "fd533b34-3648-4d19-8b49-ec4d895ff1a5"
       }
-    },
-    "privacy": "https://bahirandelivery.com/privacy",
-    "description": "Bahiran Delivery Driver App - Earn money by delivering food orders to customers. Real-time order tracking, navigation, and instant notifications."
+    }
   }
 }
