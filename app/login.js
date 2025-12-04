@@ -814,10 +814,7 @@ export default function LoginScreen() {
             <Text style={styles.termsSectionTitle}>8. DATA RETENTION</Text>
             <Text style={styles.termsBodyText}>
               • Active Accounts: Data retained while account is active{'\n'}
-              • Deleted Accounts: Personal data deleted within 30 days{'\n'}
-              • Location Data: Retained for 90 days{'\n'}
-              • Transaction Records: Retained for 7 years as per regulations{'\n'}
-              • Order History: Retained for 2 years
+             
             </Text>
 
             <Text style={styles.termsSectionTitle}>9. CHILDREN'S PRIVACY</Text>
