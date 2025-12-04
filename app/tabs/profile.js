@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -90,23 +90,6 @@ export default function ProfileScreen() {
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [balanceError, setBalanceError] = useState(null);
   
-  // Withdraw Modal States
-  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawError, setWithdrawError] = useState('');
-  const [withdrawSuccess, setWithdrawSuccess] = useState('');
-  const [availableBanks, setAvailableBanks] = useState([]);
-  const [selectedBank, setSelectedBank] = useState(null);
-  const [withdrawBalance, setWithdrawBalance] = useState(null);
-  const [isLoadingBanks, setIsLoadingBanks] = useState(false);
-  
-  // Cache for bank data (stored in ref to persist between renders)
-  const banksCacheRef = useRef({
-    banks: null,
-    fetchedAt: null,
-    expiresIn: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
-  });
 
   // Helper function to format currency with visibility toggle
   const formatCurrencyWithVisibility = (amount) => {
@@ -240,37 +223,24 @@ export default function ProfileScreen() {
     setRefreshing(false);
   };
 
-  // Initialize withdraw modal - fetch available banks (with caching)
-  const handleOpenWithdrawModal = async () => {
-    setShowWithdrawModal(true);
-    setWithdrawError('');
-    setWithdrawSuccess('');
-
-    // Check if we have valid cached data
-    const now = Date.now();
-    const cache = banksCacheRef.current;
-    const isCacheValid = cache.banks && cache.fetchedAt && (now - cache.fetchedAt) < cache.expiresIn;
-
-    if (isCacheValid) {
-      // Use cached data
-      console.log('📦 Using cached bank data');
-      setAvailableBanks(cache.banks);
-      setWithdrawBalance(balance?.amount || 0); // Use current balance
-      
-      // Auto-select first bank if available
-      if (cache.banks && cache.banks.length > 0) {
-        setSelectedBank(cache.banks[0].id);
-      }
-      setIsLoadingBanks(false);
-      return;
-    }
-
-    // Fetch fresh data if cache is invalid or empty
-    setIsLoadingBanks(true);
-    setAvailableBanks([]);
-    setSelectedBank(null);
-
+  // Fetch and cache bank list
+  const fetchBankList = async () => {
     try {
+      // Check cache first (valid for 24 hours)
+      const cachedData = await AsyncStorage.getItem('bank_list_cache');
+      if (cachedData) {
+        const { banks, balance, timestamp } = JSON.parse(cachedData);
+        const age = Date.now() - timestamp;
+        const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+        
+        if (age < CACHE_DURATION) {
+          console.log('✅ Using cached bank list');
+          return { banks, balance };
+        }
+      }
+
+      // Fetch fresh data
+      console.log('🔄 Fetching fresh bank list from API');
       const response = await fetch(
         'https://bahrain-delivery-backend.onrender.com/api/v1/balance/initialize-withdraw',
         {
@@ -285,145 +255,27 @@ export default function ProfileScreen() {
       const result = await response.json();
 
       if (result.status === 'success' && result.data) {
-        const banks = result.data.banks || [];
+        // Cache the data
+        await AsyncStorage.setItem('bank_list_cache', JSON.stringify({
+          banks: result.data.banks || [],
+          balance: result.data.balance,
+          timestamp: Date.now(),
+        }));
         
-        // Store in cache
-        banksCacheRef.current = {
-          banks: banks,
-          fetchedAt: Date.now(),
-          expiresIn: 24 * 60 * 60 * 1000, // 24 hours
-        };
-        
-        console.log('✅ Bank data fetched and cached');
-        
-        setAvailableBanks(banks);
-        setWithdrawBalance(result.data.balance);
-        
-        // Auto-select first bank if available
-        if (banks && banks.length > 0) {
-          setSelectedBank(banks[0].id);
-        }
-      } else {
-        setWithdrawError('Failed to load bank information');
+        return { banks: result.data.banks || [], balance: result.data.balance };
       }
+      
+      return null;
     } catch (error) {
-      console.error('Error initializing withdraw:', error);
-      setWithdrawError('Failed to load bank information. Please try again.');
-    } finally {
-      setIsLoadingBanks(false);
+      console.error('Error fetching bank list:', error);
+      return null;
     }
   };
 
-  // Handle withdrawal request
-  const handleWithdraw = async () => {
-    setWithdrawError('');
-    setWithdrawSuccess('');
-
-    // Validation
-    const amount = parseFloat(withdrawAmount);
-    if (!withdrawAmount.trim() || isNaN(amount)) {
-      setWithdrawError('Please enter a valid amount');
-      return;
-    }
-
-    if (amount <= 0) {
-      setWithdrawError('Amount must be greater than 0');
-      return;
-    }
-
-    // Check against withdraw balance
-    if (withdrawBalance && amount > withdrawBalance) {
-      setWithdrawError(`Insufficient balance. Available: ${formatCurrency(withdrawBalance)}`);
-      return;
-    }
-
-    // Validate bank selection
-    if (!selectedBank) {
-      setWithdrawError('Please select a bank');
-      return;
-    }
-
-    // Verify selected bank exists
-    const bank = availableBanks.find(b => b.id === selectedBank);
-    if (!bank) {
-      setWithdrawError('Invalid bank selection');
-      return;
-    }
-
-    setIsWithdrawing(true);
-
-    try {
-      const response = await fetch(
-        'https://bahrain-delivery-backend.onrender.com/api/v1/balance/withdraw',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            amount: amount,
-            bankId: selectedBank,
-          }),
-        }
-      );
-
-      const result = await response.json();
-
-      // Check for authentication errors
-      if (response.status === 401) {
-        setShowWithdrawModal(false);
-        Alert.alert(
-          'Session Expired',
-          'Your session has expired. Please log in again.',
-          [
-            {
-              text: 'OK',
-              onPress: async () => {
-                await clearDeliveryData();
-                await logout();
-                router.replace('/login');
-              },
-            },
-          ],
-          { cancelable: false }
-        );
-        return;
-      }
-
-      if (result.status === 'success' || response.ok) {
-        setWithdrawSuccess(result.message || 'Withdrawal request submitted successfully!');
-        
-        // Refresh balance after 1.5 seconds
-        setTimeout(async () => {
-          await fetchBalanceData();
-          setShowWithdrawModal(false);
-          setWithdrawAmount('');
-          setSelectedBank(null);
-          setAvailableBanks([]);
-          setWithdrawError('');
-          setWithdrawSuccess('');
-        }, 1500);
-      } else {
-        setWithdrawError(result.message || 'Withdrawal failed. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error requesting withdrawal:', error);
-      setWithdrawError('Something went wrong. Please try again.');
-    } finally {
-      setIsWithdrawing(false);
-    }
-  };
-
-  // Close withdraw modal
-  const handleCloseWithdraw = () => {
-    setShowWithdrawModal(false);
-    setWithdrawAmount('');
-    setWithdrawError('');
-    setWithdrawSuccess('');
-    setSelectedBank(null);
-    setAvailableBanks([]);
-    setWithdrawBalance(null);
+  // Navigate to withdraw page
+  const handleOpenWithdrawModal = () => {
+    // Navigate to dedicated withdraw page
+    router.push('/withdraw');
   };
 
   // Calculate stats from delivery history
@@ -956,28 +808,24 @@ export default function ProfileScreen() {
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
                 <View style={styles.modalContainer}>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeader}>
-                    <View style={styles.modalIconContainer}>
-                      <Lock color="#FFFFFF" size={32} />
-                    </View>
-                    <Text style={styles.modalTitle}>Change Password</Text>
-                    <TouchableOpacity
-                      onPress={handleCloseChangePassword}
-                      style={styles.closeButton}
-                      activeOpacity={0.7}
-                    >
-                      <X color="#6b7280" size={22} />
-                    </TouchableOpacity>
+              <View style={styles.modalContent}>
+                {/* Modal Header */}
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalIconContainer}>
+                    <Lock color="#FFFFFF" size={32} />
                   </View>
-
-                  <ScrollView 
-                    style={styles.modalScrollView}
-                    contentContainerStyle={styles.modalScrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
+                  <Text style={styles.modalTitle}>Change Password</Text>
+                  <TouchableOpacity
+                    onPress={handleCloseChangePassword}
+                    style={styles.closeButton}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.modalBody}>
+                    <X color="#6b7280" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <View style={styles.modalBody}>
                     <Text style={styles.modalDescription}>
                       Enter your new password below. You will be logged out after changing your password.
                     </Text>
@@ -1070,178 +918,10 @@ export default function ProfileScreen() {
                         </Text>
                       </View>
                     )}
-                    </View>
-                  </ScrollView>
-                </View>
-              </TouchableWithoutFeedback>
+                  </View>
+                </ScrollView>
+              </View>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Withdraw Modal */}
-      <Modal
-        visible={showWithdrawModal}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={handleCloseWithdraw}
-        statusBarTranslucent
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback>
-                <View style={styles.modalContainer}>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeader}>
-                    <View style={[styles.modalIconContainer, { backgroundColor: '#10B981' }]}>
-                      <DollarSign color="#FFFFFF" size={32} />
-                    </View>
-                    <Text style={styles.modalTitle}>Request Withdrawal</Text>
-                    <TouchableOpacity
-                      onPress={handleCloseWithdraw}
-                      style={styles.closeButton}
-                      activeOpacity={0.7}
-                    >
-                      <X color="#6b7280" size={22} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <ScrollView 
-                    style={styles.modalScrollView}
-                    contentContainerStyle={styles.modalScrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    <View style={styles.modalBody}>
-                  {isLoadingBanks ? (
-                    <View style={styles.loadingContainer}>
-                      <ActivityIndicator size="large" color="#10B981" />
-                      <Text style={styles.loadingText}>Loading withdrawal options...</Text>
-                    </View>
-                  ) : (
-                    <>
-                      <Text style={styles.modalDescription}>
-                        Enter the amount you want to withdraw. Your current balance is {withdrawBalance ? formatCurrencyWithVisibility(withdrawBalance) : formatCurrencyWithVisibility(0)}.
-                      </Text>
-
-                      {/* Bank Selection */}
-                      <View style={styles.modalInputContainer}>
-                        <Text style={styles.inputLabel}>Select Bank</Text>
-                        {availableBanks.length > 0 ? (
-                          <View style={styles.bankListContainer}>
-                            {availableBanks.map((bank) => (
-                              <TouchableOpacity
-                                key={bank.id}
-                                style={[
-                                  styles.bankOption,
-                                  selectedBank === bank.id && styles.bankOptionSelected,
-                                ]}
-                                onPress={() => setSelectedBank(bank.id)}
-                                activeOpacity={0.7}
-                              >
-                                <View style={styles.bankOptionContent}>
-                                  <View
-                                    style={[
-                                      styles.bankRadio,
-                                      selectedBank === bank.id && styles.bankRadioSelected,
-                                    ]}
-                                  >
-                                    {selectedBank === bank.id && (
-                                      <View style={styles.bankRadioInner} />
-                                    )}
-                                  </View>
-                                  <View style={styles.bankInfo}>
-                                    <Text style={styles.bankName}>{bank.name}</Text>
-                                    <Text style={styles.bankSlug}>{bank.slug}</Text>
-                                  </View>
-                                </View>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        ) : (
-                          <View style={styles.noBanksContainer}>
-                            <Text style={styles.noBanksText}>No banks available</Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Amount Input */}
-                      <View style={styles.modalInputContainer}>
-                        <Text style={styles.inputLabel}>Withdrawal Amount (ETB)</Text>
-                        <View style={styles.passwordInputWrapper}>
-                          <DollarSign color="#6b7280" size={20} style={styles.inputIcon} />
-                          <TextInput
-                            style={styles.passwordInput}
-                            placeholder="Enter amount"
-                            placeholderTextColor="#9ca3af"
-                            value={withdrawAmount}
-                            onChangeText={setWithdrawAmount}
-                            keyboardType="numeric"
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                          />
-                        </View>
-                      </View>
-                    </>
-                  )}
-
-                  {/* Quick Amount Buttons */}
-                  <View style={styles.quickAmountsContainer}>
-                    <Text style={styles.quickAmountsLabel}>Quick Select</Text>
-                    <View style={styles.quickAmountsButtons}>
-                      {['50', '100', '200', '500'].map((amount) => (
-                        <TouchableOpacity
-                          key={amount}
-                          style={styles.quickAmountButton}
-                          onPress={() => setWithdrawAmount(amount)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.quickAmountText}>{amount}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-
-                  {/* Withdraw Button */}
-                  <TouchableOpacity
-                    style={styles.modalButton}
-                    onPress={handleWithdraw}
-                    disabled={isWithdrawing}
-                  >
-                    <LinearGradient
-                      colors={['#10B981', '#059669']}
-                      style={styles.modalButtonGradient}
-                    >
-                      {isWithdrawing ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <Text style={styles.modalButtonText}>Request Withdrawal</Text>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-
-                  {/* Error/Success Messages */}
-                  {(withdrawError || withdrawSuccess) && (
-                    <View style={[
-                      styles.passwordMessageBanner,
-                      withdrawError ? styles.passwordErrorBanner : styles.passwordSuccessBanner
-                    ]}>
-                      <Text style={[
-                        styles.passwordMessageText,
-                        withdrawError ? styles.passwordErrorText : styles.passwordSuccessText
-                      ]}>
-                        {withdrawError || withdrawSuccess}
-                      </Text>
-                    </View>
-                    )}
-                    </View>
-                  </ScrollView>
-                </View>
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
@@ -1465,10 +1145,9 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     maxWidth: 480,
-    maxHeight: '80%',
+    maxHeight: '85%',
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -1481,13 +1160,6 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  modalScrollView: {
-    flex: 1,
-  },
-  modalScrollContent: {
-    flexGrow: 1,
-    paddingBottom: 20,
-  },
   modalContent: {
     paddingVertical: 24,
     paddingHorizontal: 24,
@@ -1496,12 +1168,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
+    marginBottom: 24,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    backgroundColor: '#FFFFFF',
   },
   modalIconContainer: {
     width: 56,
@@ -1540,9 +1210,8 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   modalBody: {
-    paddingHorizontal: 24,
     paddingTop: 8,
-    paddingBottom: 20,
+    paddingBottom: 0,
   },
   modalDescription: {
     fontSize: 14,
@@ -1889,68 +1558,5 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#6B7280',
-  },
-  bankListContainer: {
-    gap: 10,
-    marginTop: 8,
-    maxHeight: 200,
-  },
-  bankOption: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    padding: 14,
-  },
-  bankOptionSelected: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#3B82F6',
-  },
-  bankOptionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  bankRadio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bankRadioSelected: {
-    borderColor: '#3B82F6',
-  },
-  bankRadioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#3B82F6',
-  },
-  bankInfo: {
-    flex: 1,
-  },
-  bankName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  bankSlug: {
-    fontSize: 13,
-    color: '#6B7280',
-  },
-  noBanksContainer: {
-    padding: 20,
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  noBanksText: {
-    fontSize: 14,
-    color: '#DC2626',
   },
 });
