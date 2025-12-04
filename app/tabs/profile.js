@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -100,6 +100,13 @@ export default function ProfileScreen() {
   const [selectedBank, setSelectedBank] = useState(null);
   const [withdrawBalance, setWithdrawBalance] = useState(null);
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
+  
+  // Cache for bank data (stored in ref to persist between renders)
+  const banksCacheRef = useRef({
+    banks: null,
+    fetchedAt: null,
+    expiresIn: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+  });
 
   // Helper function to format currency with visibility toggle
   const formatCurrencyWithVisibility = (amount) => {
@@ -233,12 +240,33 @@ export default function ProfileScreen() {
     setRefreshing(false);
   };
 
-  // Initialize withdraw modal - fetch available banks
+  // Initialize withdraw modal - fetch available banks (with caching)
   const handleOpenWithdrawModal = async () => {
     setShowWithdrawModal(true);
-    setIsLoadingBanks(true);
     setWithdrawError('');
     setWithdrawSuccess('');
+
+    // Check if we have valid cached data
+    const now = Date.now();
+    const cache = banksCacheRef.current;
+    const isCacheValid = cache.banks && cache.fetchedAt && (now - cache.fetchedAt) < cache.expiresIn;
+
+    if (isCacheValid) {
+      // Use cached data
+      console.log('📦 Using cached bank data');
+      setAvailableBanks(cache.banks);
+      setWithdrawBalance(balance?.amount || 0); // Use current balance
+      
+      // Auto-select first bank if available
+      if (cache.banks && cache.banks.length > 0) {
+        setSelectedBank(cache.banks[0].id);
+      }
+      setIsLoadingBanks(false);
+      return;
+    }
+
+    // Fetch fresh data if cache is invalid or empty
+    setIsLoadingBanks(true);
     setAvailableBanks([]);
     setSelectedBank(null);
 
@@ -257,12 +285,23 @@ export default function ProfileScreen() {
       const result = await response.json();
 
       if (result.status === 'success' && result.data) {
-        setAvailableBanks(result.data.banks || []);
+        const banks = result.data.banks || [];
+        
+        // Store in cache
+        banksCacheRef.current = {
+          banks: banks,
+          fetchedAt: Date.now(),
+          expiresIn: 24 * 60 * 60 * 1000, // 24 hours
+        };
+        
+        console.log('✅ Bank data fetched and cached');
+        
+        setAvailableBanks(banks);
         setWithdrawBalance(result.data.balance);
         
         // Auto-select first bank if available
-        if (result.data.banks && result.data.banks.length > 0) {
-          setSelectedBank(result.data.banks[0].id);
+        if (banks && banks.length > 0) {
+          setSelectedBank(banks[0].id);
         }
       } else {
         setWithdrawError('Failed to load bank information');
@@ -917,24 +956,28 @@ export default function ProfileScreen() {
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
                 <View style={styles.modalContainer}>
-              <View style={styles.modalContent}>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <View style={styles.modalIconContainer}>
-                    <Lock color="#FFFFFF" size={32} />
+                  {/* Modal Header */}
+                  <View style={styles.modalHeader}>
+                    <View style={styles.modalIconContainer}>
+                      <Lock color="#FFFFFF" size={32} />
+                    </View>
+                    <Text style={styles.modalTitle}>Change Password</Text>
+                    <TouchableOpacity
+                      onPress={handleCloseChangePassword}
+                      style={styles.closeButton}
+                      activeOpacity={0.7}
+                    >
+                      <X color="#6b7280" size={22} />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.modalTitle}>Change Password</Text>
-                  <TouchableOpacity
-                    onPress={handleCloseChangePassword}
-                    style={styles.closeButton}
-                    activeOpacity={0.7}
-                  >
-                    <X color="#6b7280" size={22} />
-                  </TouchableOpacity>
-                </View>
 
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  <View style={styles.modalBody}>
+                  <ScrollView 
+                    style={styles.modalScrollView}
+                    contentContainerStyle={styles.modalScrollContent}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <View style={styles.modalBody}>
                     <Text style={styles.modalDescription}>
                       Enter your new password below. You will be logged out after changing your password.
                     </Text>
@@ -1027,10 +1070,9 @@ export default function ProfileScreen() {
                         </Text>
                       </View>
                     )}
-                  </View>
-                </ScrollView>
-              </View>
-            </View>
+                    </View>
+                  </ScrollView>
+                </View>
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
@@ -1054,23 +1096,28 @@ export default function ProfileScreen() {
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
                 <View style={styles.modalContainer}>
-              <View style={styles.modalContent}>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <View style={[styles.modalIconContainer, { backgroundColor: '#10B981' }]}>
-                    <DollarSign color="#FFFFFF" size={32} />
+                  {/* Modal Header */}
+                  <View style={styles.modalHeader}>
+                    <View style={[styles.modalIconContainer, { backgroundColor: '#10B981' }]}>
+                      <DollarSign color="#FFFFFF" size={32} />
+                    </View>
+                    <Text style={styles.modalTitle}>Request Withdrawal</Text>
+                    <TouchableOpacity
+                      onPress={handleCloseWithdraw}
+                      style={styles.closeButton}
+                      activeOpacity={0.7}
+                    >
+                      <X color="#6b7280" size={22} />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.modalTitle}>Request Withdrawal</Text>
-                  <TouchableOpacity
-                    onPress={handleCloseWithdraw}
-                    style={styles.closeButton}
-                    activeOpacity={0.7}
-                  >
-                    <X color="#6b7280" size={22} />
-                  </TouchableOpacity>
-                </View>
 
-                <View style={styles.modalBody}>
+                  <ScrollView 
+                    style={styles.modalScrollView}
+                    contentContainerStyle={styles.modalScrollContent}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <View style={styles.modalBody}>
                   {isLoadingBanks ? (
                     <View style={styles.loadingContainer}>
                       <ActivityIndicator size="large" color="#10B981" />
@@ -1191,10 +1238,10 @@ export default function ProfileScreen() {
                         {withdrawError || withdrawSuccess}
                       </Text>
                     </View>
-                  )}
+                    )}
+                    </View>
+                  </ScrollView>
                 </View>
-              </View>
-            </View>
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
@@ -1418,9 +1465,10 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     maxWidth: 480,
-    maxHeight: '85%',
+    maxHeight: '80%',
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -1433,6 +1481,13 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
   modalContent: {
     paddingVertical: 24,
     paddingHorizontal: 24,
@@ -1441,10 +1496,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    backgroundColor: '#FFFFFF',
   },
   modalIconContainer: {
     width: 56,
@@ -1483,8 +1540,9 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   modalBody: {
+    paddingHorizontal: 24,
     paddingTop: 8,
-    paddingBottom: 0,
+    paddingBottom: 20,
   },
   modalDescription: {
     fontSize: 14,
@@ -1835,6 +1893,7 @@ const styles = StyleSheet.create({
   bankListContainer: {
     gap: 10,
     marginTop: 8,
+    maxHeight: 200,
   },
   bankOption: {
     backgroundColor: '#F9FAFB',
