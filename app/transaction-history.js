@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,659 +9,506 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Dimensions,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  Animated,
+  TextInput,
+  Modal,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import {
   ArrowLeft,
   TrendingUp,
   TrendingDown,
-  Filter,
   RefreshCw,
   Wallet,
   Clock,
-  CheckCircle,
+  Search,
   XCircle,
-  AlertCircle,
-} from 'lucide-react-native';
-import { router } from 'expo-router';
-import { useAuth } from '../providers/auth-provider';
+  CheckCircle,
+} from "lucide-react-native";
+
+import { router } from "expo-router";
+import { useAuth } from "../providers/auth-provider";
+
 import {
   getTransactionHistory,
   formatCurrency,
   formatDateTime,
   getTransactionTypeColor,
   getTransactionStatusColor,
-} from '../services/balance-service';
-
-const { width } = Dimensions.get('window');
+} from "../services/balance-service";
 
 export default function TransactionHistoryScreen() {
   const { token } = useAuth();
-  const [transactions, setTransactions] = useState([]);
-  const [filteredTransactions, setFilteredTransactions] = useState([]);
-  const [totalBalance, setTotalBalance] = useState(0);
-  const [requesterType, setRequesterType] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [filterBy, setFilterBy] = useState('all'); // all, deposit, withdraw
 
+  const [transactions, setTransactions] = useState([]);
+  const [displayList, setDisplayList] = useState({});
+  const [totalBalance, setTotalBalance] = useState(0);
+  const [bankMap, setBankMap] = useState({});
+  const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [selectedTx, setSelectedTx] = useState(null);
+
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  // 🔄 Refresh icon animation
+  const startRotate = () => {
+    rotateAnim.setValue(0);
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      })
+    ).start();
+  };
+  const stopRotate = () => rotateAnim.stopAnimation();
+
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+
+  // ----------------------------------------------------------
+  // Load bank names from cache (TeleBirr / CBE Birr)
+  // ----------------------------------------------------------
+  const loadBankCache = async () => {
+    try {
+      const cache = await AsyncStorage.getItem("bank_list_cache");
+      if (!cache) return;
+
+      const parsed = JSON.parse(cache);
+      const map = {};
+
+      parsed.banks.forEach((b) => {
+        map[b.id] = b.name;
+      });
+
+      setBankMap(map);
+    } catch (e) {
+      console.log("BANK CACHE ERR:", e);
+    }
+  };
+
+  // ----------------------------------------------------------
+  // Group transactions by date
+  // ----------------------------------------------------------
+  const groupByDate = (list) => {
+    const groups = {};
+
+    const now = new Date();
+    const today = now.toISOString().split("T")[0];
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayString = yesterday.toISOString().split("T")[0];
+
+    list.forEach((tx) => {
+      const dateKey = tx.createdAt.split("T")[0];
+      let group = "Older";
+
+      if (dateKey === today) group = "Today";
+      else if (dateKey === yesterdayString) group = "Yesterday";
+      else {
+        const daysDiff =
+          (now - new Date(dateKey)) / (1000 * 60 * 60 * 24);
+        if (daysDiff <= 7) group = "This Week";
+        else if (daysDiff <= 14) group = "Last Week";
+      }
+
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(tx);
+    });
+
+    return groups;
+  };
+
+  // ----------------------------------------------------------
   // Fetch transaction history
+  // ----------------------------------------------------------
   const fetchTransactions = useCallback(async () => {
     try {
-      setError(null);
-      const result = await getTransactionHistory(token);
+      const res = await getTransactionHistory(token);
+      if (!res.success) return;
 
-      if (result.success) {
-        // Sort transactions in descending order (newest first)
-        const sortedTransactions = [...result.data.transactions].sort((a, b) => {
-          return new Date(b.createdAt) - new Date(a.createdAt);
-        });
-        
-        setTransactions(sortedTransactions);
-        setFilteredTransactions(sortedTransactions);
-        setTotalBalance(result.data.totalBalance);
-        setRequesterType(result.data.requesterType);
-      } else {
-        setError(result.message);
-      }
-    } catch (err) {
-      console.error('Error fetching transactions:', err);
-      setError('Failed to load transaction history');
+      const sorted = res.data.transactions.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
+
+      setTransactions(sorted);
+      setDisplayList(groupByDate(sorted));
+      setTotalBalance(res.data.totalBalance);
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      stopRotate();
     }
   }, [token]);
 
   useEffect(() => {
+    loadBankCache();
     fetchTransactions();
   }, [fetchTransactions]);
 
-  // Handle refresh
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchTransactions();
-  };
-
-  // Apply filter - maintain descending order
+  // ----------------------------------------------------------
+  // SEARCH — without order ID or amount
+  // ----------------------------------------------------------
   useEffect(() => {
-    let filtered = [];
-    if (filterBy === 'all') {
-      filtered = [...transactions];
-    } else if (filterBy === 'deposit') {
-      filtered = transactions.filter(t => t.type === 'Deposit');
-    } else if (filterBy === 'withdraw') {
-      filtered = transactions.filter(t => t.type === 'Withdraw');
+    if (!search.trim()) {
+      setDisplayList(groupByDate(transactions));
+      return;
     }
-    
-    // Keep descending order (newest first)
-    const sortedFiltered = filtered.sort((a, b) => {
-      return new Date(b.createdAt) - new Date(a.createdAt);
+
+    const q = search.toLowerCase();
+
+    const filtered = transactions.filter((tx) => {
+      return (
+        tx.type.toLowerCase().includes(q) ||
+        (tx.status && tx.status.toLowerCase().includes(q)) ||
+        (tx.note && tx.note.toLowerCase().includes(q.replace(/[0-9]/g, ""))) ||
+        (tx.bankId && (bankMap[tx.bankId] || "").toLowerCase().includes(q))
+      );
     });
-    
-    setFilteredTransactions(sortedFiltered);
-  }, [filterBy, transactions]);
 
-  // Get status icon
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'COMPLETED':
-        return <CheckCircle color="#10B981" size={18} />;
-      case 'PENDING':
-        return <Clock color="#F59E0B" size={18} />;
-      case 'FAILED':
-        return <XCircle color="#EF4444" size={18} />;
-      default:
-        return <AlertCircle color="#6B7280" size={18} />;
-    }
-  };
+    setDisplayList(groupByDate(filtered));
+  }, [search, transactions]);
 
-  // Calculate statistics
-  const calculateStats = () => {
-    const deposits = transactions.filter(t => t.type === 'Deposit');
-    const withdrawals = transactions.filter(t => t.type === 'Withdraw');
-
-    const totalDeposits = deposits.reduce((sum, t) => sum + t.amount, 0);
-    const totalWithdrawals = withdrawals.reduce((sum, t) => sum + t.amount, 0);
-
-    return {
-      totalDeposits,
-      totalWithdrawals,
-      depositCount: deposits.length,
-      withdrawalCount: withdrawals.length,
-    };
-  };
-
-  const stats = calculateStats();
-
-  if (isLoading) {
+  // ----------------------------------------------------------
+  // MAIN UI RENDER
+  // ----------------------------------------------------------
+  if (isLoading)
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3B82F6" />
-          <Text style={styles.loadingText}>Loading transactions...</Text>
-        </View>
+      <SafeAreaView style={styles.center}>
+        <ActivityIndicator color="#2563EB" size="large" />
+        <Text style={{ color: "#6B7280", marginTop: 10 }}>
+          Loading transactions…
+        </Text>
       </SafeAreaView>
     );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+
+      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-        >
-          <ArrowLeft color="#1F2937" size={24} />
+        <TouchableOpacity onPress={() => router.back()}>
+          <ArrowLeft size={24} color="#1F2937" />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Transaction History</Text>
-          <Text style={styles.headerSubtitle}>
-            {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
-          </Text>
-        </View>
+
+        <Text style={styles.headerTitle}>Transactions</Text>
+
         <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={handleRefresh}
-          activeOpacity={0.7}
+          onPress={() => {
+            startRotate();
+            setRefreshing(true);
+            fetchTransactions();
+          }}
         >
-          <RefreshCw color="#3B82F6" size={20} />
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <RefreshCw size={22} color="#2563EB" />
+          </Animated.View>
         </TouchableOpacity>
       </View>
 
+      {/* SEARCH BAR */}
+      <View style={styles.searchContainer}>
+        <Search size={18} color="#6B7280" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by bank, status, or type..."
+          placeholderTextColor="#9CA3AF"
+          value={search}
+          onChangeText={setSearch}
+        />
+      </View>
+
       <ScrollView
-        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={['#3B82F6']}
-            tintColor="#3B82F6"
+            onRefresh={fetchTransactions}
           />
         }
       >
-        {/* Balance Card */}
+        {/* BALANCE CARD */}
         <View style={styles.balanceCard}>
-          <LinearGradient
-            colors={['#3B82F6', '#1E40AF']}
-            style={styles.balanceGradient}
-          >
-            <View style={styles.balanceHeader}>
-              <Wallet color="#FFFFFF" size={24} />
-              <Text style={styles.balanceLabel}>Current Balance</Text>
-            </View>
+          <LinearGradient colors={["#2563EB", "#1E3A8A"]} style={styles.balanceGradient}>
+            <Wallet size={28} color="white" />
             <Text style={styles.balanceAmount}>{formatCurrency(totalBalance)}</Text>
-            {requesterType && (
-              <Text style={styles.requesterType}>{requesterType} Account</Text>
-            )}
+            <Text style={styles.balanceType}>Available Balance</Text>
           </LinearGradient>
         </View>
 
-        {/* Statistics Cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <TrendingUp color="#10B981" size={20} />
-            </View>
-            <Text style={styles.statValue}>{formatCurrency(stats.totalDeposits)}</Text>
-            <Text style={styles.statLabel}>Total Deposits</Text>
-            <Text style={styles.statCount}>{stats.depositCount} transactions</Text>
-          </View>
+        {/* GROUPED TRANSACTIONS */}
+        {Object.keys(displayList).map((groupName) => (
+          <View key={groupName} style={{ marginBottom: 20 }}>
+            <Text style={styles.groupTitle}>{groupName}</Text>
 
-          <View style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: '#FEE2E2' }]}>
-              <TrendingDown color="#EF4444" size={20} />
-            </View>
-            <Text style={styles.statValue}>{formatCurrency(stats.totalWithdrawals)}</Text>
-            <Text style={styles.statLabel}>Total Withdrawals</Text>
-            <Text style={styles.statCount}>{stats.withdrawalCount} transactions</Text>
-          </View>
-        </View>
-
-        {/* Filter Buttons */}
-        <View style={styles.filterContainer}>
-          <Text style={styles.filterTitle}>Filter by Type</Text>
-          <View style={styles.filterButtons}>
-            <TouchableOpacity
-              style={[styles.filterButton, filterBy === 'all' && styles.filterButtonActive]}
-              onPress={() => setFilterBy('all')}
-              activeOpacity={0.7}
-            >
-              <Filter
-                size={16}
-                color={filterBy === 'all' ? '#FFFFFF' : '#6B7280'}
-              />
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  filterBy === 'all' && styles.filterButtonTextActive,
-                ]}
-              >
-                All
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.filterButton, filterBy === 'deposit' && styles.filterButtonActive]}
-              onPress={() => setFilterBy('deposit')}
-              activeOpacity={0.7}
-            >
-              <TrendingUp
-                size={16}
-                color={filterBy === 'deposit' ? '#FFFFFF' : '#10B981'}
-              />
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  filterBy === 'deposit' && styles.filterButtonTextActive,
-                ]}
-              >
-                Deposits
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.filterButton, filterBy === 'withdraw' && styles.filterButtonActive]}
-              onPress={() => setFilterBy('withdraw')}
-              activeOpacity={0.7}
-            >
-              <TrendingDown
-                size={16}
-                color={filterBy === 'withdraw' ? '#FFFFFF' : '#EF4444'}
-              />
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  filterBy === 'withdraw' && styles.filterButtonTextActive,
-                ]}
-              >
-                Withdrawals
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Transaction List */}
-        <View style={styles.transactionsContainer}>
-          <Text style={styles.transactionsTitle}>All Transactions (Recent First)</Text>
-
-          {error ? (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity
-                style={styles.retryButton}
-                onPress={handleRefresh}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.retryButtonText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          ) : filteredTransactions.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Wallet color="#9CA3AF" size={48} />
-              <Text style={styles.emptyTitle}>No Transactions</Text>
-              <Text style={styles.emptyMessage}>
-                {filterBy === 'all'
-                  ? 'You have no transaction history yet.'
-                  : `No ${filterBy} transactions found.`}
-              </Text>
-            </View>
-          ) : (
-            filteredTransactions.map((transaction, index) => {
-              const typeColor = getTransactionTypeColor(transaction.type);
-              const statusColors = getTransactionStatusColor(transaction.status);
+            {displayList[groupName].map((tx) => {
+              const typeColor = getTransactionTypeColor(tx.type);
+              const statusStyle = getTransactionStatusColor(tx.status);
 
               return (
-                <View key={transaction.id || index} style={styles.transactionCard}>
-                  <View style={styles.transactionLeft}>
+                <TouchableOpacity
+                  key={tx.id}
+                  style={styles.card}
+                  onPress={() => setSelectedTx(tx)}
+                >
+                  {/* LEFT */}
+                  <View style={styles.left}>
                     <View
                       style={[
-                        styles.transactionIconContainer,
-                        { backgroundColor: `${typeColor}15` },
+                        styles.iconBox,
+                        { backgroundColor: typeColor + "22" },
                       ]}
                     >
-                      {transaction.type === 'Deposit' ? (
+                      {tx.type === "Deposit" ? (
                         <TrendingUp color={typeColor} size={20} />
                       ) : (
                         <TrendingDown color={typeColor} size={20} />
                       )}
                     </View>
-                    <View style={styles.transactionInfo}>
-                      <Text style={styles.transactionType}>{transaction.type}</Text>
-                      <Text style={styles.transactionDate}>
-                        {formatDateTime(transaction.createdAt)}
-                      </Text>
-                      {transaction.note && (
-                        <Text style={styles.transactionNote} numberOfLines={1}>
-                          {transaction.note}
+
+                    <View>
+                      <Text style={styles.typeText}>{tx.type}</Text>
+                      <Text style={styles.date}>{formatDateTime(tx.createdAt)}</Text>
+
+                      {tx.type === "Withdraw" && (
+                        <Text style={styles.bankName}>
+                          {bankMap[tx.bankId] || "Unknown Bank"}
+                        </Text>
+                      )}
+
+                      {tx.note && (
+                        <Text style={styles.note}>
+                          {tx.note.replace(/order\s+[a-f0-9]+/gi, "")}
                         </Text>
                       )}
                     </View>
                   </View>
 
-                  <View style={styles.transactionRight}>
-                    <Text
-                      style={[
-                        styles.transactionAmount,
-                        { color: typeColor },
-                      ]}
-                    >
-                      {transaction.type === 'Deposit' ? '+' : '-'}
-                      {formatCurrency(transaction.amount)}
+                  {/* RIGHT */}
+                  <View style={styles.right}>
+                    <Text style={[styles.amount, { color: typeColor }]}>
+                      {tx.type === "Deposit" ? "+" : "-"}
+                      {formatCurrency(tx.netAmount)}
                     </Text>
+
                     <View
                       style={[
-                        styles.transactionStatus,
-                        { backgroundColor: statusColors.backgroundColor },
+                        styles.statusBox,
+                        { backgroundColor: statusStyle.backgroundColor },
                       ]}
                     >
-                      {getStatusIcon(transaction.status)}
-                      <Text
-                        style={[styles.transactionStatusText, { color: statusColors.color }]}
-                      >
-                        {transaction.status}
+                     {statusStyle.icon && (
+  <statusStyle.icon size={16} color={statusStyle.color} />
+)}
+
+                      <Text style={[styles.statusText, { color: statusStyle.color }]}>
+                        {tx.status}
                       </Text>
                     </View>
-                    <Text style={styles.transactionBalance}>
-                      Balance: {formatCurrency(transaction.currentBalance)}
+
+                    <Text style={styles.balanceText}>
+                      Balance: {formatCurrency(tx.currentBalance)}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
-            })
-          )}
-        </View>
+            })}
+          </View>
+        ))}
       </ScrollView>
+
+      {/* ================================
+          FEE BREAKDOWN MODAL
+      ================================= */}
+      <Modal visible={!!selectedTx} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            {selectedTx && (
+              <>
+                <Text style={styles.modalTitle}>Transaction Details</Text>
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Type: </Text>
+                  {selectedTx.type}
+                </Text>
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Original Amount: </Text>
+                  {formatCurrency(selectedTx.originalAmount)}
+                </Text>
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Fee: </Text>
+                  {formatCurrency(selectedTx.fee)}
+                </Text>
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Net Amount: </Text>
+                  {formatCurrency(selectedTx.netAmount)}
+                </Text>
+
+                {selectedTx.bankId && (
+                  <Text style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Bank: </Text>
+                    {bankMap[selectedTx.bankId]}
+                  </Text>
+                )}
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Status: </Text>
+                  {selectedTx.status}
+                </Text>
+
+                <Text style={styles.modalRow}>
+                  <Text style={styles.modalLabel}>Date: </Text>
+                  {formatDateTime(selectedTx.createdAt)}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setSelectedTx(null)}
+                >
+                  <XCircle size={22} color="white" />
+                  <Text style={styles.closeText}>Close</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
+// ----------------------------------------------------------
+// STYLES
+// ----------------------------------------------------------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
+    padding: 16,
+    backgroundColor: "white",
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  backButton: {
-    padding: 8,
-  },
-  headerTitleContainer: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  refreshButton: {
-    padding: 8,
-  },
-  balanceCard: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  balanceGradient: {
-    padding: 24,
-  },
-  balanceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    marginLeft: 8,
-    fontWeight: '500',
-  },
-  balanceAmount: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  requesterType: {
-    fontSize: 13,
-    color: '#FFFFFF',
-    opacity: 0.8,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  statIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#D1FAE5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 2,
-  },
-  statCount: {
-    fontSize: 11,
-    color: '#9CA3AF',
-  },
-  filterContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  filterTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 12,
-  },
-  filterButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  filterButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+
+  headerTitle: { fontSize: 18, fontWeight: "700" },
+
+  searchContainer: {
+    backgroundColor: "white",
+    margin: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    gap: 6,
+    borderColor: "#E5E7EB",
+    flexDirection: "row",
+    alignItems: "center",
   },
-  filterButtonActive: {
-    backgroundColor: '#3B82F6',
-    borderColor: '#3B82F6',
-  },
-  filterButtonText: {
+
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
     fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
+    color: "#111827",
   },
-  filterButtonTextActive: {
-    color: '#FFFFFF',
+
+  balanceCard: { marginHorizontal: 16, marginBottom: 20, borderRadius: 16 },
+  balanceGradient: { padding: 24 },
+  balanceAmount: { fontSize: 34, fontWeight: "bold", color: "white" },
+  balanceType: { color: "white", marginTop: 4 },
+
+  groupTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginLeft: 16,
+    marginBottom: 10,
+    color: "#4B5563",
   },
-  transactionsContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  transactionsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  transactionCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+
+  card: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginHorizontal: 16,
+    marginBottom: 10,
     padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    backgroundColor: "white",
+    borderRadius: 12,
     elevation: 2,
   },
-  transactionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  transactionIconContainer: {
+
+  left: { flexDirection: "row", gap: 12 },
+  iconBox: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  transactionInfo: {
-    flex: 1,
-  },
-  transactionType: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  transactionDate: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 2,
-  },
-  transactionNote: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontStyle: 'italic',
-  },
-  transactionRight: {
-    alignItems: 'flex-end',
-  },
-  transactionAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  transactionStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  typeText: { fontSize: 15, fontWeight: "700" },
+  date: { fontSize: 12, color: "#6B7280" },
+  note: { fontSize: 11, color: "#6B7280", marginTop: 4 },
+  bankName: { fontSize: 12, color: "#1D4ED8", fontWeight: "600" },
+
+  right: { alignItems: "flex-end" },
+
+  amount: { fontSize: 17, fontWeight: "700" },
+
+  statusBox: {
+    flexDirection: "row",
+    gap: 4,
+    alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    gap: 4,
-    marginBottom: 4,
+    marginTop: 4,
   },
-  transactionStatusText: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  transactionBalance: {
-    fontSize: 11,
-    color: '#9CA3AF',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  errorContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#EF4444',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyMessage: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-});
 
+  statusText: { fontSize: 10, fontWeight: "700" },
+  balanceText: { marginTop: 4, fontSize: 11, color: "#6B7280" },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  modalBox: {
+    width: "88%",
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 16,
+  },
+
+  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 12 },
+
+  modalRow: { fontSize: 14, marginBottom: 8 },
+  modalLabel: { fontWeight: "700" },
+
+  closeButton: {
+    marginTop: 20,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#EF4444",
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  closeText: { color: "white", fontWeight: "700" },
+});

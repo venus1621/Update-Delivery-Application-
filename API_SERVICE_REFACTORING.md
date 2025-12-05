@@ -55,32 +55,7 @@ A dedicated API service module that handles all HTTP requests related to deliver
 ## 🔧 Technical Implementation
 
 ### Before (Inline API Calls):
-```javascript
-const fetchActiveOrder = useCallback(async (status) => {
-  try {
-    const response = await fetch(
-      `https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=${status}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    let data = await response.json();
-    if (response.ok && data && data.status === "success") {
-      // Transform and normalize data...
-      const normalizedActiveOrders = data.data.map(order => {
-        // Complex transformation logic...
-      });
-      setState(prev => ({
-        ...prev,
-        isLoadingActiveOrder: false,
-        activeOrder: normalizedActiveOrders.length > 0 ? normalizedActiveOrders : null,
-      }));
-    } else {
-      // Error handling...
-    }
-  } catch (err) {
-    // Error handling...
-  }
-}, [token]);
-```
+
 
 ### After (Using API Service):
 ```javascript
