@@ -663,7 +663,7 @@ export default function ProfileScreen() {
                         style={[styles.transactionAmount, { color: typeColor }]}
                       >
                         {transaction.type === 'Deposit' ? '+' : '-'}
-                        {formatCurrencyWithVisibility(transaction.amount)}
+                        {formatCurrencyWithVisibility(transaction.netAmount)}
                       </Text>
                       <View
                         style={[
