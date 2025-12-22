@@ -57,6 +57,15 @@ import {
   getTransactionTypeColor,
   getTransactionStatusColor,
 } from '../../services/balance-service';
+import {
+  getProximityRadius,
+  setProximityRadius,
+  updateCachedRadius,
+  RADIUS_OPTIONS,
+} from '../../utils/proximity-settings';
+import { checkNearbyOrders } from '../../services/orderProximityService';
+import orderNotificationService from '../../services/order-notification-service';
+import { Vibration } from 'react-native';
 
 export default function ProfileScreen() {
   const { user, logout, token } = useAuth();
@@ -80,6 +89,10 @@ export default function ProfileScreen() {
   
   // Notification Sound Settings
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
+  
+  // Proximity Radius Settings
+  const [proximityRadius, setProximityRadiusState] = useState(2); // Default 2km
+  const [showRadiusModal, setShowRadiusModal] = useState(false);
   
   // Currency Visibility Toggle
   const [showCurrency, setShowCurrency] = useState(true);
@@ -189,9 +202,80 @@ export default function ProfileScreen() {
       if (soundEnabled !== null) {
         setNotificationSoundEnabled(soundEnabled === 'true');
       }
+      
+      // Load proximity radius setting
+      const radius = await getProximityRadius();
+      setProximityRadiusState(radius);
     } catch (error) {
       console.error('Error loading notification settings:', error);
     }
+  };
+
+  // Save proximity radius setting
+  const handleRadiusChange = async (newRadius) => {
+    try {
+      setProximityRadiusState(newRadius);
+      await setProximityRadius(newRadius);
+      updateCachedRadius(newRadius);
+      setShowRadiusModal(false);
+      
+      if (Platform.OS === 'android') {
+        const { ToastAndroid } = require('react-native');
+        ToastAndroid.show(
+          `📍 Proximity radius set to ${newRadius >= 1 ? newRadius + ' km' : (newRadius * 1000) + 'm'}`,
+          ToastAndroid.SHORT
+        );
+      }
+
+      // ✅ Immediately check for nearby orders with new radius
+      console.log(`🔍 Checking nearby orders with new radius: ${newRadius}km`);
+      checkNearbyOrders({
+        onNear: async (orderRow, distanceKm) => {
+          console.log(`🔔 Found nearby order: ${orderRow.order_code} at ${distanceKm.toFixed(2)}km`);
+          
+          // Show notification
+          const payload = {
+            orderId: orderRow.order_id,
+            orderCode: orderRow.order_code,
+            restaurantName: orderRow.restaurant_name,
+            restaurantLocation: {
+              latitude: orderRow.restaurant_lat,
+              longitude: orderRow.restaurant_lng,
+            },
+            deliveryLocation: {
+              latitude: orderRow.delivery_lat,
+              longitude: orderRow.delivery_lng,
+            },
+            deliveryFee: orderRow.delivery_fee,
+            tip: orderRow.tip,
+            createdAt: orderRow.created_at,
+            distanceKm,
+          };
+          
+          await orderNotificationService.showNewOrderNotification(payload);
+          Vibration.vibrate([0, 500, 200, 500, 200, 500]);
+          
+          // Show alert with order info
+          Alert.alert(
+            '🔔 Nearby Order Found!',
+            `Order ${orderRow.order_code} from ${orderRow.restaurant_name} is ${distanceKm.toFixed(2)}km away!\n\nDelivery Fee: ETB ${orderRow.delivery_fee}\nTip: ETB ${orderRow.tip}`,
+            [
+              { text: 'View Orders', onPress: () => router.push('/tabs/orders') },
+              { text: 'OK', style: 'cancel' },
+            ]
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Error saving proximity radius:', error);
+      Alert.alert('Error', 'Failed to save proximity radius setting');
+    }
+  };
+
+  // Get radius display text
+  const getRadiusDisplayText = () => {
+    const option = RADIUS_OPTIONS.find(r => r.value === proximityRadius);
+    return option ? option.label : `${proximityRadius} km`;
   };
 
   // Toggle notification sound and save preference
@@ -484,6 +568,19 @@ export default function ProfileScreen() {
           ios_backgroundColor="#D1D5DB"
           disabled={false}
         />
+      ),
+    },
+    {
+      icon: MapPin,
+      label: 'Nearby Order Radius',
+      subtitle: `Notify when within ${getRadiusDisplayText()}`,
+      color: '#8B5CF6',
+      onPress: () => setShowRadiusModal(true),
+      rightComponent: (
+        <View style={styles.radiusBadge}>
+          <Text style={styles.radiusBadgeText}>{getRadiusDisplayText()}</Text>
+          <ChevronRight size={16} color="#8B5CF6" />
+        </View>
       ),
     },
     {
@@ -926,6 +1023,79 @@ export default function ProfileScreen() {
             </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Proximity Radius Selection Modal */}
+      <Modal
+        visible={showRadiusModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowRadiusModal(false)}
+        statusBarTranslucent
+      >
+        <TouchableWithoutFeedback onPress={() => setShowRadiusModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.radiusModalContent}>
+                <View style={styles.radiusModalHeader}>
+                  <View style={styles.radiusModalIconContainer}>
+                    <MapPin color="#FFFFFF" size={28} />
+                  </View>
+                  <Text style={styles.radiusModalTitle}>Nearby Order Radius</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowRadiusModal(false)}
+                    style={styles.closeButton}
+                  >
+                    <X color="#6b7280" size={22} />
+                  </TouchableOpacity>
+                </View>
+                
+                <Text style={styles.radiusModalDescription}>
+                  Set the distance radius for nearby order notifications. 
+                  You'll be notified when you're within this distance of a restaurant with an available order.
+                </Text>
+                
+                <View style={styles.radiusOptionsContainer}>
+                  {RADIUS_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.radiusOption,
+                        proximityRadius === option.value && styles.radiusOptionSelected,
+                      ]}
+                      onPress={() => handleRadiusChange(option.value)}
+                    >
+                      <View style={styles.radiusOptionContent}>
+                        <MapPin 
+                          size={20} 
+                          color={proximityRadius === option.value ? '#FFFFFF' : '#8B5CF6'} 
+                        />
+                        <Text style={[
+                          styles.radiusOptionText,
+                          proximityRadius === option.value && styles.radiusOptionTextSelected,
+                        ]}>
+                          {option.label}
+                        </Text>
+                      </View>
+                      {proximityRadius === option.value && (
+                        <View style={styles.radiusCheckmark}>
+                          <Text style={styles.radiusCheckmarkText}>✓</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                
+                <View style={styles.radiusInfoBox}>
+                  <Text style={styles.radiusInfoText}>
+                    💡 A smaller radius means you'll only be notified when very close to restaurants. 
+                    A larger radius gives you more advance notice.
+                  </Text>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </SafeAreaView>
   );
@@ -1558,5 +1728,113 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#6B7280',
+  },
+  // Radius Badge Styles
+  radiusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 4,
+  },
+  radiusBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8B5CF6',
+  },
+  // Radius Modal Styles
+  radiusModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  radiusModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  radiusModalIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#8B5CF6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  radiusModalTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  radiusModalDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  radiusOptionsContainer: {
+    gap: 10,
+  },
+  radiusOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 16,
+  },
+  radiusOptionSelected: {
+    backgroundColor: '#8B5CF6',
+    borderColor: '#8B5CF6',
+  },
+  radiusOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  radiusOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  radiusOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  radiusCheckmark: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radiusCheckmarkText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8B5CF6',
+  },
+  radiusInfoBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+  },
+  radiusInfoText: {
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 18,
   },
 });

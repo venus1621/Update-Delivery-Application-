@@ -2,9 +2,109 @@
 // Handles all HTTP API calls for delivery operations
 
 import { logger } from '../utils/logger';
+import { Vibration } from 'react-native';
 import { transformOrderLocations } from '../utils/location-utils';
+import { normalizeOrder } from "../utils/normalizeOrder";
+import { upsertOrder } from "../db/ordersDb";
+import locationService from "./location-service";
+import orderNotificationService from "./order-notification-service";
+import { getProximityRadius } from "../utils/proximity-settings";
+import { isOrderRejected } from "../utils/rejected-orders";
 
 const API_BASE_URL = 'https://api.bahirandelivery.cloud/api/v1';
+
+// Callback for showing order modal (set by delivery-provider)
+let showOrderModalCallback = null;
+
+// Callback to check if driver has active order
+let hasActiveOrderCallback = null;
+
+/**
+ * Set the callback for showing order modal
+ */
+export const setShowOrderModalCallback = (callback) => {
+  showOrderModalCallback = callback;
+};
+
+/**
+ * Set the callback for checking active order status
+ */
+export const setHasActiveOrderCallback = (callback) => {
+  hasActiveOrderCallback = callback;
+};
+
+/**
+ * Check orders against current location and notify if within radius
+ * @param {Array} orders - Normalized orders to check
+ */
+const checkOrdersProximity = async (orders) => {
+  try {
+    // Check if driver has an active order - skip all notifications
+    if (hasActiveOrderCallback && hasActiveOrderCallback()) {
+      logger.log('🚫 Skipping proximity check - driver has active order');
+      return;
+    }
+
+    const currentLocation = locationService.getCurrentLocation();
+    if (!currentLocation) {
+      logger.log('📍 No current location for proximity check');
+      return;
+    }
+
+    const radiusKm = await getProximityRadius();
+    logger.log(`📍 Checking ${orders.length} orders against ${radiusKm}km radius`);
+
+    for (const order of orders) {
+      const orderId = order.orderId || order.id || order._id;
+      
+      // Skip rejected orders
+      if (isOrderRejected(orderId)) {
+        logger.log(`🚫 Skipping rejected order: ${order.orderCode}`);
+        continue;
+      }
+
+      // Get restaurant coordinates
+      let restLat, restLng;
+      if (order.restaurantLocation) {
+        restLat = order.restaurantLocation.latitude || order.restaurantLocation.lat;
+        restLng = order.restaurantLocation.longitude || order.restaurantLocation.lng;
+      }
+
+      if (!restLat || !restLng) {
+        continue;
+      }
+
+      const distance = locationService.calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        restLat,
+        restLng
+      );
+
+      logger.log(`📍 Order ${order.orderCode}: ${distance.toFixed(2)}km away`);
+
+      if (distance <= radiusKm) {
+        logger.log(`🔔 Order ${order.orderCode} is within ${radiusKm}km! Showing notification...`);
+        
+        // Show notification with sound
+        await orderNotificationService.showNewOrderNotification(order);
+        
+        // Vibrate
+        Vibration.vibrate([0, 500, 200, 500, 200, 500]);
+        
+        // Show modal if callback is set
+        if (showOrderModalCallback) {
+          showOrderModalCallback(order);
+        }
+        
+        // Only notify for first matching order to avoid spam
+        break;
+      }
+    }
+  } catch (error) {
+    logger.error('❌ Error in proximity check:', error);
+  }
+};
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {
@@ -210,34 +310,37 @@ export const fetchAvailableOrders = async (token) => {
       throw new Error(`Failed to parse server response: ${jsonError?.message || jsonError?.toString() || 'Unknown error'}`);
     }
  
-    if (response.ok && data && data.status === "success") {
-      // ✅ Transform locations and normalize the response
-      const normalizedOrders = data.data.map((order) => {
-        console.log(order.orderId)
-        const transformedOrder = transformOrderLocations(order);
-        return {
-          id: order.orderId,
-          code: order.orderCode,
-          restaurantName: order.restaurantName,
-          restaurantLocation: transformedOrder.restaurantLocation,
-          deliveryLocation: transformedOrder.deliveryLocation || transformedOrder.destinationLocation,
-          // Keep coordinates for backward compatibility
-          restaurantCoordinates: order.restaurantLocation?.coordinates || [],
-          deliveryCoordinates: order.deliveryLocation?.coordinates || [],
-          deliveryFee: order.deliveryFee,
-          tip: order.tip,
-          total: order.grandTotal,
-          createdAt: new Date(order.createdAt).toLocaleString(),
-        };
-      });
+   if (response.ok && data?.status === "success") {
+  const normalizedOrders = [];
 
-      
-      return {
-        success: true,
-        data: normalizedOrders,
-        count: normalizedOrders.length
-      };
-    } else {
+  logger.log(`📥 Received ${data.data?.length || 0} orders from API`);
+
+  for (const raw of data.data) {
+    const order = normalizeOrder(raw);
+    normalizedOrders.push(order);
+
+    // ✅ Save every API order to SQLite for proximity notifications
+    try {
+      await upsertOrder(order, "api");
+      logger.log(`💾 Saved order ${order.orderCode} to SQLite`);
+    } catch (dbError) {
+      logger.error(`❌ Failed to save order ${order.orderCode} to SQLite:`, dbError);
+    }
+  }
+
+  // ✅ Immediately check proximity for all fetched orders
+  if (normalizedOrders.length > 0) {
+    logger.log('🔍 Checking orders proximity immediately after fetch...');
+    checkOrdersProximity(normalizedOrders);
+  }
+
+  return {
+    success: true,
+    data: normalizedOrders,
+    count: normalizedOrders.length,
+  };
+}
+     else {
       const serverMessage =
         data?.message ||
         data?.error ||

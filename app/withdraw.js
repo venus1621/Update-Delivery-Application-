@@ -239,7 +239,7 @@ export default function WithdrawScreen() {
           {/* Loading State */}
           {isLoadingBanks ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#10B981" />
+              <ActivityIndicator size= {48}  color="#10B981" />
               <Text style={styles.loadingText}>Fetching bank list...</Text>
             </View>
           ) : (

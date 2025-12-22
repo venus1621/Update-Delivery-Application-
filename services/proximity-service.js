@@ -3,6 +3,7 @@ import { Audio } from "expo-av";
 import { isNotificationSoundEnabled } from "../utils/notification-settings";
 import locationService from "./location-service";
 import { logger } from "../utils/logger";
+import databaseService from "./database-service";
 import {
   startBackgroundLocationUpdates,
   stopBackgroundLocationUpdates,
@@ -175,20 +176,37 @@ class ProximityService {
       if (isDestination) {
         // Destination proximity → CALL CUSTOMER notification
         const phone = order.phone || order.customerPhone || order.userPhone || null;
+        const message = `You are ${Math.round(meters)} meters from customer.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || "Customer"}`;
         
         await this.showAlertNotification(
           "📍 Approaching Customer!",
-          `You are ${Math.round(meters)} meters from customer.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || "Customer"}`,
+          message,
           orderId,
           phone
         );
+
+        // Log notification to database
+        await databaseService.logNotification(
+          orderId,
+          'customer_proximity',
+          `Approaching customer - ${Math.round(meters)}m away`
+        );
       } else {
         // Restaurant proximity
+        const message = `You are ${Math.round(meters)} meters from ${order.restaurantName || "restaurant"}.\n\nOrder: ${order.orderCode || orderId}\n\nArrive & pick up the order.`;
+        
         await this.showAlertNotification(
           `🏪 Near Restaurant`,
-          `You are ${Math.round(meters)} meters from ${order.restaurantName || "restaurant"}.\n\nOrder: ${order.orderCode || orderId}\n\nArrive & pick up the order.`,
+          message,
           orderId,
           null
+        );
+
+        // Log notification to database
+        await databaseService.logNotification(
+          orderId,
+          'restaurant_proximity',
+          `Near restaurant ${order.restaurantName || "restaurant"} - ${Math.round(meters)}m away`
         );
       }
     }
@@ -267,18 +285,25 @@ class ProximityService {
     this.getActiveOrdersCallback = getActiveOrders;
     this.getCurrentLocationCallback = getCurrentLocation;
     
-    const started = await startBackgroundLocationUpdates(
-      this.handleBackgroundLocationUpdate.bind(this)
-    );
-    
-    if (started) {
-      this.isBackgroundMode = true;
-      logger.log("✅ Background proximity tracking enabled");
-    } else {
-      logger.error("❌ Failed to enable background tracking");
+    try {
+      const started = await startBackgroundLocationUpdates(
+        this.handleBackgroundLocationUpdate.bind(this)
+      );
+      
+      if (started) {
+        this.isBackgroundMode = true;
+        logger.log("✅ Background proximity tracking enabled");
+      } else {
+        // This is expected in Expo Go - use foreground tracking instead
+        logger.log("ℹ️ Background tracking not available (Expo Go limitation) - using foreground tracking");
+      }
+      
+      return started;
+    } catch (error) {
+      // Background tracking not available in Expo Go - this is expected
+      logger.log("ℹ️ Background tracking not available - using foreground tracking instead");
+      return false;
     }
-    
-    return started;
   }
 
   // ------------------------------------------------

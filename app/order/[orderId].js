@@ -281,7 +281,7 @@ export default function OrderDetailsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1E40AF" />
+          <ActivityIndicator size= {48}  color="#1E40AF" />
           <Text style={styles.loadingText}>Loading order detail</Text>
         </View>
       </SafeAreaView>

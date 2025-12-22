@@ -918,6 +918,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 4,
   },
+  termsAcceptButtonContainer: {
+  paddingHorizontal: 20,
+  paddingBottom: 20,
+},
+
   subtitle: {
     fontSize: 16,
     color: '#e5e7eb',
@@ -1326,7 +1331,7 @@ const styles = StyleSheet.create({
   termsModalTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+
   },
   termsModalTitle: {
     fontSize: 22,
@@ -1397,7 +1402,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    gap: 10,
+  
   },
   termsAcceptButtonText: {
     color: '#FFFFFF',

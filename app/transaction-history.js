@@ -183,7 +183,7 @@ export default function TransactionHistoryScreen() {
   if (isLoading)
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator color="#2563EB" size="large" />
+        <ActivityIndicator color="#2563EB" size= {48}  />
         <Text style={{ color: "#6B7280", marginTop: 10 }}>
           Loading transactions…
         </Text>

@@ -28,6 +28,7 @@ import {
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 import { router } from 'expo-router';
+import locationService from '../../services/location-service';
 
 const { width } = Dimensions.get('window');
 
@@ -64,11 +65,55 @@ export default function OrdersScreen() {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [userLocation, setUserLocation] = useState(null);
 
-  // Fetch orders regardless of online status (API works independently)
+  // Fetch orders and get real user location
   useEffect(() => {
     fetchAvailableOrders();
-    // Simulate user location for distance calculation (Addis Ababa)
-    setUserLocation({ latitude: 9.0100, longitude: 38.7600 });
+    
+    // Get real user location from location service
+    const getCurrentLocation = async () => {
+      try {
+        // Try to get current location directly
+        let location = locationService.getCurrentLocation();
+        
+        if (location?.latitude && location?.longitude) {
+          setUserLocation({
+            latitude: location.latitude,
+            longitude: location.longitude
+          });
+          return;
+        }
+        
+        // If no cached location, get it async
+        location = await locationService.getCurrentLocationAsync();
+        if (location?.latitude && location?.longitude) {
+          setUserLocation({
+            latitude: location.latitude,
+            longitude: location.longitude
+          });
+        } else {
+          // Fallback to Addis Ababa center
+          setUserLocation({ latitude: 9.0100, longitude: 38.7600 });
+        }
+      } catch (error) {
+        console.error('Error getting location:', error);
+        // Fallback to Addis Ababa center if location unavailable
+        setUserLocation({ latitude: 9.0100, longitude: 38.7600 });
+      }
+    };
+    
+    getCurrentLocation();
+    
+    // Subscribe to location updates
+    const unsubscribe = locationService.subscribe((newLocation) => {
+      if (newLocation?.latitude && newLocation?.longitude) {
+        setUserLocation({
+          latitude: newLocation.latitude,
+          longitude: newLocation.longitude
+        });
+      }
+    });
+    
+    return () => unsubscribe();
   }, [fetchAvailableOrders]);
 
   useEffect(() => {
@@ -213,23 +258,39 @@ const getOrderPriority = (order) => {
 
   // Calculate distance for an order using coordinates
   const getOrderDistance = (order) => {
+    
     if (!userLocation) {
       return 'N/A';
     }
     
     try {
-      // Use transformed restaurantLocation object first, fallback to coordinates array
+      // Use transformed restaurantLocation object - handle multiple formats
       let restLat, restLng;
-      
-      if (order.restaurantLocation && order.restaurantLocation.lat && order.restaurantLocation.lng) {
-        // Use transformed location object {lat, lng}
-        restLat = order.restaurantLocation.lat;
-        restLng = order.restaurantLocation.lng;
-      } else if (order.restaurantCoordinates && order.restaurantCoordinates.length >= 2) {
-        // Fallback to coordinates array [lng, lat] format from backend
+      console.log('order.restaurantLocation', order.restaurantLocation);
+      if (order.restaurantLocation) {
+        // Handle {latitude, longitude} format (from normalizeOrder)
+        if (order.restaurantLocation.latitude && order.restaurantLocation.longitude) {
+          restLat = order.restaurantLocation.latitude;
+          restLng = order.restaurantLocation.longitude;
+        }
+        // Handle {lat, lng} format
+        else if (order.restaurantLocation.lat && order.restaurantLocation.lng) {
+          restLat = order.restaurantLocation.lat;
+          restLng = order.restaurantLocation.lng;
+        }
+        // Handle GeoJSON {type: "Point", coordinates: [lng, lat]} format
+        else if (order.restaurantLocation.coordinates && order.restaurantLocation.coordinates.length >= 2) {
+          restLng = order.restaurantLocation.coordinates[0];
+          restLat = order.restaurantLocation.coordinates[1];
+        }
+      }
+      // Fallback to coordinates array [lng, lat] format from backend
+      else if (order.restaurantCoordinates && order.restaurantCoordinates.length >= 2) {
         restLng = order.restaurantCoordinates[0];
         restLat = order.restaurantCoordinates[1];
-      } else {
+      }
+      
+      if (!restLat || !restLng) {
         return 'N/A';
       }
       
@@ -261,6 +322,7 @@ const getOrderPriority = (order) => {
 
   const ordersData = getOrdersData();
 
+  // Filter orders based on selected filter
   const filteredOrders = ordersData.filter(order => {
     const totalEarnings = (order.deliveryFee || 0) + (order.tip || 0);
     const priority = getOrderPriority(order);
@@ -281,6 +343,17 @@ const getOrderPriority = (order) => {
       default:
         return true;
     }
+  }).sort((a, b) => {
+    // Sort by distance (nearest first)
+    const distanceA = parseFloat(getOrderDistance(a));
+    const distanceB = parseFloat(getOrderDistance(b));
+    
+    // Handle N/A values - push them to the end
+    if (isNaN(distanceA) && isNaN(distanceB)) return 0;
+    if (isNaN(distanceA)) return 1;
+    if (isNaN(distanceB)) return -1;
+    
+    return distanceA - distanceB;
   });
 
   const FilterBar = () => (
@@ -332,7 +405,7 @@ const getOrderPriority = (order) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1E40AF" />
+          <ActivityIndicator size= {48}  color="#1E40AF" />
           <Text style={styles.loadingText}>Loading available orders...</Text>
         </View>
       </SafeAreaView>

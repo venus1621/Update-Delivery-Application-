@@ -181,7 +181,7 @@ export default function QRScanner({ visible, onClose, onScanSuccess, orderId }) 
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3B82F6" />
+          <ActivityIndicator size= {48}  color="#3B82F6" />
           <Text style={styles.loadingText}>Requesting camera permission...</Text>
         </View>
       </View>
@@ -272,7 +272,7 @@ export default function QRScanner({ visible, onClose, onScanSuccess, orderId }) 
 
             {isProcessing && !showSuccess && (
               <View style={styles.processingContainer}>
-                <ActivityIndicator size="large" color="#FFFFFF" />
+                <ActivityIndicator size= {48}  color="#FFFFFF" />
                 <Text style={styles.processingText}>Verifying...</Text>
               </View>
             )}

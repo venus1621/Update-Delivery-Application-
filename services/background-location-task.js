@@ -43,18 +43,25 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
 // Start background location tracking
 export async function startBackgroundLocationUpdates(callback) {
   try {
+    // Check if TaskManager is available (not fully available in Expo Go on Android)
+    const isTaskManagerAvailable = await TaskManager.isAvailableAsync();
+    if (!isTaskManagerAvailable) {
+      logger.log("ℹ️ TaskManager not available - background tracking disabled (Expo Go limitation)");
+      return false;
+    }
+
     // Request background location permissions
     const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
     
     if (foregroundStatus !== "granted") {
-      logger.error("Foreground location permission not granted");
+      logger.log("ℹ️ Foreground location permission not granted");
       return false;
     }
 
     const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
     
     if (backgroundStatus !== "granted") {
-      logger.warn("Background location permission not granted");
+      logger.log("ℹ️ Background location permission not granted - using foreground tracking");
       return false;
     }
 
@@ -86,7 +93,8 @@ export async function startBackgroundLocationUpdates(callback) {
 
     return true;
   } catch (error) {
-    logger.error("Failed to start background location:", error);
+    // This is expected in Expo Go - don't log as error
+    logger.log("ℹ️ Background location not available:", error.message || "Expo Go limitation");
     return false;
   }
 }

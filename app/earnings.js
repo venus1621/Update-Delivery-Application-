@@ -106,7 +106,7 @@ export default function EarningsScreen() {
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size= {48} color="#007AFF" />
           <Text style={styles.loadingText}>Loading earnings data...</Text>
         </View>
       </SafeAreaView>

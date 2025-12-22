@@ -6,19 +6,28 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { Alert, Vibration, Platform, ToastAndroid } from "react-native";
+import { Alert, Vibration, Platform, ToastAndroid,AppState } from "react-native";
 import { Audio } from 'expo-av';
 import { isNotificationSoundEnabled } from '../utils/notification-settings';
 // Note: removed persistent local storage for accepted orders - using in-memory state only
+import NetInfo from "@react-native-community/netinfo";
 import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 import proximityService from "../services/proximity-service";
 import orderNotificationService from "../services/order-notification-service";
+import databaseService from "../services/database-service";
+import smartOrderService from "../services/smart-order-service";
 import { transformOrderLocations } from '../utils/location-utils';
 import { logger } from '../utils/logger';
 import * as DeliveryAPI from '../services/delivery-api';
+import { setShowOrderModalCallback, setHasActiveOrderCallback } from '../services/delivery-api';
 import DeliveryOrderModal from '../components/DeliveryOrderModal';
+import { normalizeOrder } from "../utils/normalizeOrder";
+import { upsertOrder } from "../db/ordersDb";
+import { checkNearbyOrders } from "../services/orderProximityService";
+import { initProximitySettings } from "../utils/proximity-settings";
+import { initRejectedOrders, addRejectedOrder, isOrderRejected } from "../utils/rejected-orders";
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {
@@ -52,7 +61,7 @@ export const DeliveryProvider = ({ children }) => {
     pendingOrderPopup: null,
     showOrderModal: false,
     isConnected: false,
-    isOnline: false,
+    isOnline: true,
     orderHistory: [],
     socket: null,
     broadcastMessages: [],
@@ -86,6 +95,8 @@ export const DeliveryProvider = ({ children }) => {
   const periodicLocationIntervalRef = useRef(null); // Ref for periodic location updates (customer tracking)
   const notificationSoundRef = useRef(null); // Ref for new order notification sound
   const isPeriodicTrackingActive = useRef(false); // Track if customer is actively tracking
+  const appState = useRef(AppState.currentState); // Track app state for background/foreground transitions
+  const activeOrderRef = useRef(null); // Track active order for callback access
 
   // 🗄️ Cache Utility Functions
   const isCacheValid = useCallback((cacheKey) => {
@@ -208,10 +219,131 @@ export const DeliveryProvider = ({ children }) => {
     }
   }, []);
 
-  // 📍 Initialize location tracking and audio
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(net => {
+      const online =
+        !!net.isConnected &&
+        (net.isInternetReachable === null || net.isInternetReachable === true);
+
+      setState((prev) => ({ ...prev, isOnline: online }));
+      logger.log(`🌐 Network: ${online ? "ONLINE" : "OFFLINE"}`);
+    });
+
+    // Set up callback for showing order modal from delivery-api proximity check
+    setShowOrderModalCallback((order) => {
+      logger.log('📦 Showing order modal from proximity check:', order.orderCode || order.orderId);
+      setState(prev => ({
+        ...prev,
+        showDeliveryModal: true,
+        currentDeliveryOrder: order,
+      }));
+    });
+
+    // Set up callback for checking if driver has active order
+    setHasActiveOrderCallback(() => {
+      const activeOrder = activeOrderRef.current;
+      if (activeOrder) {
+        const orders = Array.isArray(activeOrder) ? activeOrder : [activeOrder];
+        return orders.length > 0 && orders[0] != null;
+      }
+      return false;
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Keep activeOrderRef in sync with state
+  useEffect(() => {
+    activeOrderRef.current = state.activeOrder;
+  }, [state.activeOrder]);
+
+    useEffect(() => {
+    const subscription = AppState.addEventListener("change", nextState => {
+      const wasBackground = appState.current.match(/inactive|background/);
+      appState.current = nextState;
+
+      if (wasBackground && nextState === "active") {
+        logger.log("📱 App returned to foreground — checking socket...");
+
+        if (state.isOnline && socketRef.current && !socketRef.current.connected) {
+          logger.log("♻️ Reconnecting socket...");
+          socketRef.current.connect();
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [state.isOnline]);
+
+  // Reference for proximity check interval
+  const proximityCheckIntervalRef = useRef(null);
+
+  // 🔔 Handle nearby order found from proximity check
+  const handleNearbyOrderFound = async (orderRow, distanceKm) => {
+    const orderId = orderRow.order_id;
+    
+    // Check if driver has an active order - skip notification
+    if (state.activeOrder) {
+      const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : [state.activeOrder];
+      if (activeOrders.length > 0 && activeOrders[0]) {
+        logger.log(`🚫 Skipping notification - driver has active order: ${activeOrders[0].orderCode || activeOrders[0].orderId}`);
+        return;
+      }
+    }
+    
+    // Check if order was previously rejected - skip notification
+    if (isOrderRejected(orderId)) {
+      logger.log(`🚫 Skipping rejected order: ${orderRow.order_code}`);
+      return;
+    }
+    
+    logger.log(`🔔 Found nearby order: ${orderRow.order_code} at ${distanceKm.toFixed(2)}km`);
+    
+    // Create order payload for notification
+    const order = {
+      orderId: orderId,
+      orderCode: orderRow.order_code,
+      restaurantName: orderRow.restaurant_name,
+      restaurantLocation: {
+        latitude: orderRow.restaurant_lat,
+        longitude: orderRow.restaurant_lng,
+      },
+      deliveryLocation: {
+        latitude: orderRow.delivery_lat,
+        longitude: orderRow.delivery_lng,
+      },
+      deliveryFee: orderRow.delivery_fee,
+      tip: orderRow.tip,
+      total: orderRow.total,
+      createdAt: orderRow.created_at,
+      distanceKm,
+    };
+    
+    // Show notification with sound
+    await orderNotificationService.showNewOrderNotification(order);
+    
+    // Play notification sound
+    await playNewOrderNotification();
+    
+    // Show order modal
+    setState(prev => ({
+      ...prev,
+      showDeliveryModal: true,
+      currentDeliveryOrder: order,
+    }));
+    
+    logger.log('✅ Nearby order notification shown and modal opened');
+  };
+
+  // 📍 Initialize location tracking, database, and audio
   useEffect(() => {
     const initializeLocationTracking = async () => {
       try {
+        // Initialize database first
+        await databaseService.init();
+        logger.log('✅ Database initialized');
+
         // Configure audio mode for maximum compatibility
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
@@ -235,6 +367,34 @@ export const DeliveryProvider = ({ children }) => {
         // Initialize notification service for background notifications
         await orderNotificationService.initNotifications();
         logger.log('✅ Order notification service initialized');
+
+        // Initialize proximity settings (load saved radius)
+        const radius = await initProximitySettings();
+        logger.log(`📍 Proximity radius loaded: ${radius}km`);
+
+        // Initialize rejected orders list
+        await initRejectedOrders();
+        logger.log('📦 Rejected orders list initialized');
+
+        // 🔔 Start periodic proximity check for nearby orders
+        logger.log('🚀 Starting periodic proximity check (every 15 seconds)');
+        
+        // Initial check after 5 seconds
+        setTimeout(() => {
+          logger.log('📍 Running initial proximity check...');
+          checkNearbyOrders({
+            onNear: handleNearbyOrderFound
+          });
+        }, 5000);
+
+        // Periodic check every 15 seconds
+        proximityCheckIntervalRef.current = setInterval(() => {
+          logger.log('📍 Running periodic proximity check...');
+          checkNearbyOrders({
+            onNear: handleNearbyOrderFound
+          });
+        }, 15000);
+
       } catch (err) {
         const message = err?.message || String(err) || 'Unknown error';
         logger.error('Error initializing location tracking:', err);
@@ -253,11 +413,17 @@ export const DeliveryProvider = ({ children }) => {
       if (locationUnsubscribeRef.current) {
         locationUnsubscribeRef.current();
       }
+      if (proximityCheckIntervalRef.current) {
+        clearInterval(proximityCheckIntervalRef.current);
+      }
       // Stop alarm and vibration
       proximityService.stopProximityAlarm();
       
       // Clean up notification service
       orderNotificationService.cleanup();
+      
+      // Clean up smart order service
+      smartOrderService.cleanup();
       
       // Clean up notification sound
       if (notificationSoundRef.current) {
@@ -266,6 +432,39 @@ export const DeliveryProvider = ({ children }) => {
       }
     };
   }, [userId]);
+
+  // 🎯 Start/stop smart order monitoring based on online status
+  useEffect(() => {
+    if (state.isOnline) {
+      logger.log('🟢 Going online - starting smart order monitoring');
+      
+      // Sync pending orders from database
+      smartOrderService.syncFromDatabase();
+      
+      // Start monitoring location against pending orders
+      smartOrderService.startMonitoring(
+        () => locationService.getCurrentLocation(),
+        (order) => {
+          // Show order modal when driver is near
+          setState(prev => ({
+            ...prev,
+            showDeliveryModal: true,
+            currentDeliveryOrder: order,
+          }));
+        }
+      );
+    } else {
+      logger.log('🔴 Going offline - stopping smart order monitoring');
+      smartOrderService.stopMonitoring();
+    }
+
+    // Cleanup when component unmounts or isOnline changes
+    return () => {
+      if (!state.isOnline) {
+        smartOrderService.stopMonitoring();
+      }
+    };
+  }, [state.isOnline]);
 
   // 🚨 Force online and location on when there's ANY active order
   useEffect(() => {
@@ -455,218 +654,201 @@ export const DeliveryProvider = ({ children }) => {
   // Socket connects ONLY when user is ONLINE
   useEffect(() => {
     if (!token || !userId) {
-      // Clear socket connection if no token/userId
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
-        setState((prev) => ({ ...prev, isConnected: false, socket: null }));
+        setState(prev => ({ ...prev, isConnected: false, socket: null }));
       }
       return;
     }
 
-    // Check if user is online - only connect when online
+    // Offline? Disconnect (unless active order)
     if (!state.isOnline) {
-      // 🚨 SAFETY CHECK: Don't disconnect if there's an active order
-      if (state.activeOrder) {
-        const hasActiveOrder = Array.isArray(state.activeOrder) 
-          ? state.activeOrder.length > 0 
-          : true;
-        
-        if (hasActiveOrder) {
-          // Force back online if there's an active order
-          setState((prev) => ({ ...prev, isOnline: true }));
-          return;
+      if (!state.activeOrder) {
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
         }
+        setState(prev => ({ ...prev, isConnected: false, socket: null }));
+        return;
       }
-      
-      // Disconnect socket if user goes offline (and no active delivery)
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-        setState((prev) => ({ ...prev, isConnected: false, socket: null }));
-      }
+
+      // If rider has active order → force stay online
+      setState(prev => ({ ...prev, isOnline: true }));
       return;
     }
 
+    // If we already have a connected socket, do nothing
+    if (socketRef.current?.connected) return;
+
+    // Create socket (with reconnection config)
     const socket = io("https://api.bahirandelivery.cloud", {
       transports: ["websocket"],
-      auth: {
-        token: token // Send JWT token for authentication
-      }
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 4000,
     });
+
     socketRef.current = socket;
 
+    /***********************************************************
+     * 🔌 Connection Events
+     ***********************************************************/
     socket.on("connect", () => {
-      setState((prev) => ({ ...prev, isConnected: true, socket }));
+      setState(prev => ({ ...prev, isConnected: true }));
+      logger.log("🟢 Socket connected");
     });
 
-    socket.on("message", (message) => {
+    socket.on("disconnect", async () => {
+      setState(prev => ({ ...prev, isConnected: false }));
+      stopPeriodicLocationUpdates();
+      await proximityService.stopBackgroundTracking();
+      proximityService.stopProximityChecking();
+      logger.log("🔴 Socket disconnected");
     });
 
-    socket.on("deliveryMessage", async (message) => {
-      logger.log(`📦 Delivery message received:`, message);
-    
-      // Parse message if it's a string
-      let orderData = message;
-      if (typeof message === 'string') {
-        try {
-          orderData = JSON.parse(message);
-        } catch (e) {
-          logger.error('Failed to parse delivery message:', e);
-          orderData = message;
-        }
-      }
-      
-      // If it's an array, get the first item
-      if (Array.isArray(orderData) && orderData.length > 0) {
-        orderData = orderData[0];
-      }
-      
+    socket.on("reconnect_attempt", attempt => {
+      logger.log(`♻️ Socket reconnect attempt #${attempt}`);
+    });
+
+    socket.on("reconnect", () => {
+      logger.log("🎉 Socket successfully reconnected");
+      setState(prev => ({ ...prev, isConnected: true }));
+    });
+
+    /***********************************************************
+     * 📦 Delivery Order Message
+     ***********************************************************/
+socket.on("deliveryMessage", async (message) => {
+  logger.log("📦 Raw socket message received:", JSON.stringify(message).substring(0, 500));
+  
+  let raw = message;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch {}
+  }
+  if (Array.isArray(raw)) raw = raw[0];
+
+  const order = normalizeOrder(raw);
+  
+  if (!order) {
+    logger.error("❌ Failed to normalize order from socket");
+    return;
+  }
+
+  logger.log("📦 New delivery order received:", order.orderCode);
+  logger.log(`   Restaurant: ${order.restaurantName}`);
+  logger.log(`   Delivery Fee: ${order.deliveryFee}, Tip: ${order.tip}, Total: ${order.grandTotal}`);
+  
+  // Check if driver has an active order - skip notification
+  if (state.activeOrder) {
+    const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : [state.activeOrder];
+    if (activeOrders.length > 0 && activeOrders[0]) {
+      logger.log(`🚫 Skipping socket order - driver has active order: ${activeOrders[0].orderCode || activeOrders[0].orderId}`);
+      return;
+    }
+  }
+  
+  // Check if order is rejected
+  if (isOrderRejected(order.orderId)) {
+    logger.log(`🚫 Skipping rejected order from socket: ${order.orderCode}`);
+    return;
+  }
+
+  // Get current location
+  const currentLocation = locationService.getCurrentLocation();
+
+  // Use smart order service to handle proximity checking
+  await smartOrderService.handleNewOrder(
+    order,
+    currentLocation,
+    (orderToShow) => {
+      // Callback to show order modal when driver is near
       setState(prev => ({
         ...prev,
-        broadcastMessages: [...prev.broadcastMessages, message],
         showDeliveryModal: true,
-        currentDeliveryOrder: orderData,
+        currentDeliveryOrder: orderToShow,
       }));
-      
-      // Show background notification (works even when app is minimized/screen off)
-      await orderNotificationService.showNewOrderNotification(orderData);
-      
-      // Fallback: Play notification sound and vibrate (for older implementation)
-      playNewOrderNotification();
-      Vibration.vibrate([0, 500, 200, 500]);
-    });
-    
-    
+    }
+  );
 
+});
 
-    socket.on("errorMessage", (error) => {
-      // Store a user-friendly socket error in state so UI can show a reconnect option
-      const message = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
-      setState((prev) => ({ ...prev, socketError: message, isConnected: false }));
-    });
+    /***********************************************************
+     * 🔥 Location Requests (Server & Admin)
+     ***********************************************************/
+    socket.on("requestLocationUpdate", ({ reason }) => {
+      logger.log(`📡 Server requested location (${reason})`);
 
-    socket.on("connect_error", (error) => {
-      const message = error?.message || String(error);
-      setState((prev) => ({ ...prev, socketError: message, isConnected: false }));
-      if (message.includes('Authentication error')) {
-        Alert.alert("Authentication Error", "Please log in again");
-        // You might want to trigger logout here
-      }
-    });
+      const loc = locationService.getCurrentLocation();
+      if (!loc || !socketRef.current?.connected) return;
 
-    // Clear any previous socket error when we successfully connect
-    socket.on('connect', () => {
-      setState((prev) => ({ ...prev, socketError: null }));
-    });
+      const act = state.activeOrder;
+      const firstOrder = Array.isArray(act) ? act[0] : act;
 
-    // 📊 Orders count updates (if backend sends this)
-    socket.on("available-orders-count", ({ count }) => {
-      setState((prev) => ({ ...prev, availableOrdersCount: count }));
-    });
-
-
-
-
-    // 📍 Backend requests location update (for server restart or order acceptance)
-    socket.on('requestLocationUpdate', ({ reason }) => {
-      logger.log(`📡 Server requested location update (reason: ${reason})`);
-      const currentLocation = locationService.getCurrentLocation();
-      if (currentLocation && socketRef.current?.connected) {
-        // Send location based on active order state
-        if (state.activeOrder) {
-          const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : [state.activeOrder];
-          const firstOrder = activeOrders[0];
-          
-          if (firstOrder) {
-            // Send location for customer tracking if there's an active order
-            socketRef.current.emit('locationUpdateFromCustomerTracking', {
-              location: {
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                accuracy: currentLocation.accuracy || 10,
-                timestamp: currentLocation.timestamp,
-                orderId: firstOrder._id || firstOrder.orderId,
-                customerId: firstOrder.userId || firstOrder.customerId,
-                deliveryPersonId: userId,
-                deliveryPersonName: user?.firstName && user?.lastName 
-                  ? `${user.firstName} ${user.lastName}` 
-                  : 'Delivery Person',
-              },
-            });
-            logger.log(`✅ Location sent (reason: ${reason})`);
-          }
-        }
-      } else {
-        logger.warn('⚠️ Cannot send location - not available or socket disconnected');
-      }
-    });
-
-    // 📍 Admin requests location update
-    socket.on('requestLocationUpdateForAdmin', ({ requestedBy, reason }) => {
-      logger.log(`👨‍💼 Admin ${requestedBy} requested location`);
-      const currentLocation = locationService.getCurrentLocation();
-      if (currentLocation && socketRef.current?.connected) {
-        socketRef.current.emit('locationUpdateForAdmin', {
+      if (firstOrder) {
+        socketRef.current.emit("locationUpdateFromCustomerTracking", {
           location: {
-            latitude: currentLocation.latitude,
-            longitude: currentLocation.longitude,
-            accuracy: currentLocation.accuracy || 10,
-            timestamp: currentLocation.timestamp,
-            requestType: reason,
-            requestedBy: requestedBy,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            accuracy: loc.accuracy || 10,
+            timestamp: loc.timestamp,
+            orderId: firstOrder._id || firstOrder.orderId,
+            customerId: firstOrder.userId || firstOrder.customerId,
             deliveryPersonId: userId,
-            deliveryPersonName: user?.firstName && user?.lastName 
-              ? `${user.firstName} ${user.lastName}` 
-              : 'Delivery Person',
-            deliveryPersonPhone: user?.phone || 'N/A',
           },
         });
-        logger.log(`✅ Location sent to admin ${requestedBy}`);
-      } else {
-        logger.warn('⚠️ Cannot send location to admin - not available or socket disconnected');
       }
     });
 
-    // 🔄 Customer starts tracking → send periodic location updates
-    socket.on('startPeriodicTracking', ({ customerId, orderId }) => {
-      logger.log(`👤 Customer ${customerId} started tracking order ${orderId}`);
+    socket.on("requestLocationUpdateForAdmin", ({ requestedBy, reason }) => {
+      logger.log(`👨‍💼 Admin ${requestedBy} requested location (${reason})`);
+
+      const loc = locationService.getCurrentLocation();
+      if (!loc || !socketRef.current?.connected) return;
+
+      socketRef.current.emit("locationUpdateForAdmin", {
+        requestedBy,
+        deliveryPersonId: userId,
+        deliveryPersonName: user?.firstName + " " + user?.lastName,
+        deliveryPersonPhone: user?.phone,
+        location: {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          accuracy: loc.accuracy || 10,
+          timestamp: loc.timestamp,
+        },
+      });
+    });
+
+    /***********************************************************
+     * Customer Tracking (Start / Stop)
+     ***********************************************************/
+    socket.on("startPeriodicTracking", ({ customerId, orderId }) => {
+      logger.log(`👤 Customer started tracking order ${orderId}`);
       startPeriodicLocationUpdates(customerId, orderId);
     });
 
-    // 🛑 Customer stops tracking → stop periodic updates
-    socket.on('stopPeriodicTracking', () => {
+    socket.on("stopPeriodicTracking", () => {
       logger.log(`👤 Customer stopped tracking`);
       stopPeriodicLocationUpdates();
     });
 
-    socket.on("disconnect", async () => {
-      setState((prev) => ({ ...prev, isConnected: false }));
-      // Stop proximity checking on disconnect (both background and foreground)
-      await proximityService.stopBackgroundTracking();
-      proximityService.stopProximityChecking();
-      // Clear periodic location updates on disconnect
-      stopPeriodicLocationUpdates();
-    });
-
+    /***********************************************************
+     * Cleanup
+     ***********************************************************/
     return () => {
-      socket.off("connect");
-      socket.off("message");
-      socket.off("deliveryMessage");
-      socket.off("errorMessage");
-      socket.off("connect_error");
-      socket.off("available-orders-count");
-      socket.off("requestLocationUpdate");
-      socket.off("requestLocationUpdateForAdmin");
-      socket.off("startPeriodicTracking");
-      socket.off("stopPeriodicTracking");
-      socket.off("disconnect");
+      socket.off();
       socket.disconnect();
-      // Stop periodic updates on unmount
       stopPeriodicLocationUpdates();
     };
-  }, [token, userId, user, state.isOnline, state.activeOrder, playNewOrderNotification, startPeriodicLocationUpdates, stopPeriodicLocationUpdates]);
-
+  }, [
+    token,
+    userId,
+    user,
+    state.isOnline,
+    state.activeOrder,
+  ]);
 
 
 
@@ -897,6 +1079,10 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
         fetchActiveOrder('Cooked').catch(e => logger.error('Error fetching cooked orders:', e));
         fetchActiveOrder('Delivering').catch(e => logger.error('Error fetching delivering orders:', e));
 
+        // Remove order from smart order service pending list
+        smartOrderService.removeOrder(orderId);
+        logger.log(`🗑️ Removed order ${orderId} from smart order service`);
+
         // Log success details to console (no blocking alert)
         
         // Show quick toast notification on Android (non-blocking)
@@ -1050,6 +1236,13 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
   );
 
   const declineOrder = useCallback((order) => {
+    // Remove order from smart order service
+    const orderId = order.orderId || order.id || order._id;
+    if (orderId) {
+      smartOrderService.removeOrder(orderId);
+      logger.log(`🗑️ Removed declined order ${orderId} from smart order service`);
+    }
+
     setState((prev) => ({
       ...prev,
       availableOrders: prev.availableOrders.filter(
@@ -1100,8 +1293,21 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
     }));
   }, [state.currentDeliveryOrder, acceptOrder, userId, fetchActiveOrder]);
 
-  const handleDeclineDeliveryOrder = useCallback(() => {
+  const handleDeclineDeliveryOrder = useCallback(async () => {
     logger.log('Declining delivery order');
+    
+    // Remove order from smart order service and add to rejected list
+    if (state.currentDeliveryOrder) {
+      const orderId = state.currentDeliveryOrder.orderId || state.currentDeliveryOrder.id || state.currentDeliveryOrder._id;
+      if (orderId) {
+        smartOrderService.removeOrder(orderId);
+        
+        // Add to rejected orders list so it won't show notification again
+        await addRejectedOrder(orderId);
+        
+        logger.log(`🚫 Order ${orderId} declined and added to rejected list`);
+      }
+    }
     
     setState((prev) => ({
       ...prev,
@@ -1111,9 +1317,9 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
     
     // Optionally show a toast or message
     if (Platform.OS === 'android') {
-      ToastAndroid.show('Order declined', ToastAndroid.SHORT);
+      ToastAndroid.show('Order declined - won\'t notify again', ToastAndroid.SHORT);
     }
-  }, []);
+  }, [state.currentDeliveryOrder]);
 
   const joinDeliveryMethod = useCallback((method) => {
   }, []);

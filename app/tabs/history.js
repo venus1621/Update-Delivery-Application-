@@ -276,7 +276,7 @@ export default function HistoryScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size= {48} color="#007AFF" />
           <Text style={styles.loadingText}>Loading delivery history...</Text>
         </View>
       </SafeAreaView>

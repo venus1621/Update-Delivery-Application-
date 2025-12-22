@@ -5,15 +5,14 @@ import { useAuth } from '../providers/auth-provider';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Truck } from 'lucide-react-native';
 import LoginScreen from './login';
-
-// ✅ IMPORT KEEP AWAKE HERE
 import { useKeepAwake } from 'expo-keep-awake';
 
 export default function IndexScreen() {
-  // ✅ CALL KEEP AWAKE HERE
   useKeepAwake();
 
   const { isAuthenticated, isLoading } = useAuth();
+
+  // Proximity checks are now handled globally in DeliveryProvider
 
   useEffect(() => {
     if (!isLoading) {
@@ -28,14 +27,11 @@ export default function IndexScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <LinearGradient
-          colors={['#1E40AF', '#3B82F6']}
-          style={styles.gradient}
-        >
+        <LinearGradient colors={['#1E40AF', '#3B82F6']} style={styles.gradient}>
           <View style={styles.logoContainer}>
             <Truck color="#FFFFFF" size={48} />
           </View>
-          <ActivityIndicator size="large" color="#FFFFFF" style={styles.loader} />
+          <ActivityIndicator size={48} color="#FFFFFF" style={styles.loader} />
         </LinearGradient>
       </View>
     );
@@ -58,7 +54,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoContainer: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   loader: {
     marginTop: 16,
