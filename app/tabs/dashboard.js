@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,12 @@ import {
   Alert,
   ToastAndroid,
   Platform,
+  Animated,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw, Scan } from 'lucide-react-native';
+import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw, Scan, Navigation, Volume2, VolumeX } from 'lucide-react-native';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -21,6 +23,10 @@ import { router } from 'expo-router';
 import OrderModal from '../../components/OrderModal';
 import VerificationModal from '../../components/VerificationModal';
 import { logger } from '../../utils/logger';
+import locationService from '../../services/location-service';
+import { getAllOrders } from '../../db/ordersDb';
+import { getProximityRadius, setProximityRadius, updateCachedRadius, RADIUS_OPTIONS } from '../../utils/proximity-settings';
+import { isNotificationSoundEnabled, setNotificationSoundEnabled } from '../../utils/notification-settings';
 
 const { width } = Dimensions.get('window');
 
@@ -66,6 +72,17 @@ export default function DashboardScreen() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [orderIdToVerify, setOrderIdToVerify] = useState(null);
   const [lastRefreshTime, setLastRefreshTime] = useState(null);
+  
+  // Find Near Order states
+  const [showRadiusModal, setShowRadiusModal] = useState(false);
+  const [selectedRadius, setSelectedRadius] = useState(5); // Default 5km
+  const [isFindingNearby, setIsFindingNearby] = useState(false);
+  const [nearbyOrdersCount, setNearbyOrdersCount] = useState(0);
+  const waveAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  
+  // Notification sound state
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
   // Show toast/alert message
   const showRefreshMessage = (message, success = true) => {
@@ -73,6 +90,187 @@ export default function DashboardScreen() {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
       // For iOS, you can use Alert or a custom toast component
+    }
+  };
+
+  // Load saved radius and sound settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      const savedRadius = await getProximityRadius();
+      setSelectedRadius(savedRadius);
+      
+      const soundEnabled = await isNotificationSoundEnabled();
+      setIsSoundEnabled(soundEnabled);
+    };
+    loadSettings();
+  }, []);
+
+  // Wavy animation effect
+  const startWaveAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(waveAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(waveAnim, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1.1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  const stopWaveAnimation = () => {
+    waveAnim.stopAnimation();
+    scaleAnim.stopAnimation();
+    waveAnim.setValue(0);
+    scaleAnim.setValue(1);
+  };
+
+  // Find nearby orders function
+  const handleFindNearbyOrders = async () => {
+    setIsFindingNearby(true);
+    startWaveAnimation();
+
+    try {
+      const currentLocation = locationService.getCurrentLocation();
+      
+      if (!currentLocation || !currentLocation.latitude || !currentLocation.longitude) {
+        Alert.alert(
+          'Location Not Available',
+          'Please enable location services to find nearby orders.',
+          [{ text: 'OK' }]
+        );
+        setIsFindingNearby(false);
+        stopWaveAnimation();
+        return;
+      }
+
+      // Check both available orders (socket) and SQLite orders
+      const socketOrders = availableOrders || [];
+      const sqliteOrders = await getAllOrders();
+      const allOrders = [...socketOrders, ...sqliteOrders];
+
+      let nearbyOrders = [];
+
+      for (const order of allOrders) {
+        const restaurantLat = order.restaurant_lat || order.restaurantLat || order.restaurantLocation?.coordinates?.[1];
+        const restaurantLng = order.restaurant_lng || order.restaurantLng || order.restaurantLocation?.coordinates?.[0];
+
+        if (!restaurantLat || !restaurantLng) continue;
+
+        const distance = locationService.calculateDistance(
+          currentLocation.latitude,
+          currentLocation.longitude,
+          restaurantLat,
+          restaurantLng
+        );
+
+        if (distance <= selectedRadius) {
+          nearbyOrders.push({
+            ...order,
+            distance: distance.toFixed(2)
+          });
+        }
+      }
+
+      // Sort by distance
+      nearbyOrders.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+      setNearbyOrdersCount(nearbyOrders.length);
+
+      // Stop animation after 2 seconds
+      setTimeout(() => {
+        setIsFindingNearby(false);
+        stopWaveAnimation();
+
+        // Show notification
+        if (nearbyOrders.length > 0) {
+          const message = `Found ${nearbyOrders.length} order${nearbyOrders.length > 1 ? 's' : ''} within ${selectedRadius}km radius!`;
+          
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(message, ToastAndroid.LONG);
+          }
+
+          Alert.alert(
+            '📍 Nearby Orders Found',
+            `${nearbyOrders.length} order${nearbyOrders.length > 1 ? 's are' : ' is'} within ${selectedRadius}km of your location.\n\nClosest order is ${nearbyOrders[0].distance}km away.`,
+            [
+              { text: 'View Orders', onPress: () => router.push('/tabs/orders') },
+              { text: 'OK' }
+            ]
+          );
+        } else {
+          const message = `No orders found within ${selectedRadius}km radius.`;
+          
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(message, ToastAndroid.SHORT);
+          }
+
+          Alert.alert(
+            '📍 No Nearby Orders',
+            `No orders found within ${selectedRadius}km of your current location. Try increasing the radius.`,
+            [{ text: 'OK' }]
+          );
+        }
+      }, 2000);
+
+    } catch (error) {
+      logger.error('Error finding nearby orders:', error);
+      setIsFindingNearby(false);
+      stopWaveAnimation();
+      
+      Alert.alert(
+        'Error',
+        'Failed to search for nearby orders. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Handle radius change
+  const handleRadiusChange = async (radius) => {
+    setSelectedRadius(radius);
+    await setProximityRadius(radius);
+    updateCachedRadius(radius);
+    setShowRadiusModal(false);
+    
+    showRefreshMessage(`Radius updated to ${radius}km`, true);
+  };
+
+  // Toggle notification sound
+  const toggleNotificationSound = async () => {
+    const newValue = !isSoundEnabled;
+    setIsSoundEnabled(newValue);
+    
+    const success = await setNotificationSoundEnabled(newValue);
+    
+    if (success) {
+      const message = newValue 
+        ? '🔔 Notification sounds enabled' 
+        : '🔇 Notification sounds muted';
+      showRefreshMessage(message, true);
+    } else {
+      // Revert on failure
+      setIsSoundEnabled(!newValue);
+      showRefreshMessage('Failed to update sound settings', false);
     }
   };
 
@@ -131,6 +329,87 @@ export default function DashboardScreen() {
 
   // ⚠️ No auto-refresh when going online - user must manually refresh
   // This prevents unnecessary API calls when navigating
+
+  // Monitor for nearby orders automatically
+  useEffect(() => {
+    if (!isOnline) return;
+
+    const checkForNearbyOrders = async () => {
+      try {
+        const currentLocation = locationService.getCurrentLocation();
+        if (!currentLocation || !currentLocation.latitude || !currentLocation.longitude) {
+          return;
+        }
+
+        // Check both socket orders and SQLite orders
+        const socketOrders = availableOrders || [];
+        const sqliteOrders = await getAllOrders();
+        const allOrders = [...socketOrders, ...sqliteOrders];
+
+        let nearbyCount = 0;
+        let closestOrder = null;
+        let closestDistance = Infinity;
+
+        for (const order of allOrders) {
+          const restaurantLat = order.restaurant_lat || order.restaurantLat || order.restaurantLocation?.coordinates?.[1];
+          const restaurantLng = order.restaurant_lng || order.restaurantLng || order.restaurantLocation?.coordinates?.[0];
+
+          if (!restaurantLat || !restaurantLng) continue;
+
+          const distance = locationService.calculateDistance(
+            currentLocation.latitude,
+            currentLocation.longitude,
+            restaurantLat,
+            restaurantLng
+          );
+
+          if (distance <= selectedRadius) {
+            nearbyCount++;
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestOrder = order;
+            }
+          }
+        }
+
+        if (nearbyCount !== nearbyOrdersCount) {
+          setNearbyOrdersCount(nearbyCount);
+
+          // Show notification when new nearby order is detected
+          if (nearbyCount > nearbyOrdersCount && nearbyCount > 0) {
+            const message = `New order within ${selectedRadius}km! (${closestDistance.toFixed(2)}km away)`;
+            
+            if (Platform.OS === 'android') {
+              ToastAndroid.show(`📍 ${message}`, ToastAndroid.LONG);
+            }
+            
+            // Optional: Show alert for important notifications
+            // Uncomment if you want popup alerts
+            /*
+            Alert.alert(
+              '🔔 New Nearby Order!',
+              message,
+              [
+                { text: 'View', onPress: () => router.push('/tabs/orders') },
+                { text: 'Dismiss' }
+              ]
+            );
+            */
+          }
+        }
+      } catch (error) {
+        logger.error('Error checking nearby orders:', error);
+      }
+    };
+
+    // Check immediately
+    checkForNearbyOrders();
+
+    // Set up interval to check every 30 seconds
+    const intervalId = setInterval(checkForNearbyOrders, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [isOnline, availableOrders, selectedRadius, nearbyOrdersCount]);
 
   // Handle complete order with verification
   const handleCompleteOrder = () => {
@@ -282,6 +561,19 @@ export default function DashboardScreen() {
                 size={24}
                 style={refreshing ? styles.refreshIconSpinning : null}
               />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.soundButton, 
+                isSoundEnabled ? styles.soundEnabled : styles.soundMuted
+              ]}
+              onPress={toggleNotificationSound}
+            >
+              {isSoundEnabled ? (
+                <Volume2 color="#FFFFFF" size={20} />
+              ) : (
+                <VolumeX color="#FFFFFF" size={20} />
+              )}
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.statusButton, isOnline ? styles.online : styles.offline]}
@@ -477,6 +769,96 @@ export default function DashboardScreen() {
         {/* Quick Actions */}
         <View style={styles.quickActionsContainer}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
+          
+          {/* Find Near Order Button - Full Width */}
+          <TouchableOpacity 
+            style={[
+              styles.findNearButton,
+              isFindingNearby && styles.findNearButtonActive
+            ]}
+            onPress={handleFindNearbyOrders}
+            disabled={isFindingNearby}
+          >
+            <LinearGradient
+              colors={isFindingNearby ? ['#10B981', '#059669'] : ['#3B82F6', '#2563EB']}
+              style={styles.findNearGradient}
+            >
+              <Animated.View 
+                style={[
+                  styles.findNearContent,
+                  {
+                    transform: [{ scale: isFindingNearby ? scaleAnim : 1 }]
+                  }
+                ]}
+              >
+                <View style={styles.findNearIconContainer}>
+                  <Navigation color="#FFFFFF" size={32} />
+                  {isFindingNearby && (
+                    <Animated.View
+                      style={[
+                        styles.waveCircle,
+                        {
+                          opacity: waveAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.8, 0]
+                          }),
+                          transform: [{
+                            scale: waveAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 2.5]
+                            })
+                          }]
+                        }
+                      ]}
+                    />
+                  )}
+                  {isFindingNearby && (
+                    <Animated.View
+                      style={[
+                        styles.waveCircle,
+                        {
+                          opacity: waveAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.6, 0]
+                          }),
+                          transform: [{
+                            scale: waveAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1.2, 3]
+                            })
+                          }]
+                        }
+                      ]}
+                    />
+                  )}
+                </View>
+                <View style={styles.findNearTextContainer}>
+                  <Text style={styles.findNearTitle}>
+                    {isFindingNearby ? '🔍 Searching...' : '📍 Find Near Orders'}
+                  </Text>
+                  <Text style={styles.findNearSubtext}>
+                    {isFindingNearby 
+                      ? `Looking for orders within ${selectedRadius}km...`
+                      : `Search within ${selectedRadius}km radius`
+                    }
+                  </Text>
+                  {nearbyOrdersCount > 0 && !isFindingNearby && (
+                    <Text style={styles.findNearCount}>
+                      {nearbyOrdersCount} nearby order{nearbyOrdersCount > 1 ? 's' : ''} found
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity 
+                  style={styles.radiusButton}
+                  onPress={() => setShowRadiusModal(true)}
+                  disabled={isFindingNearby}
+                >
+                  <Text style={styles.radiusButtonText}>{selectedRadius}km</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </LinearGradient>
+          </TouchableOpacity>
+
           <View style={styles.quickActions}>
             <TouchableOpacity 
               style={styles.quickActionButton}
@@ -577,6 +959,48 @@ export default function DashboardScreen() {
         orderCode={activeOrder?.order_id}
         isLoading={isVerifying}
       />
+
+      {/* Radius Selection Modal */}
+      <Modal
+        visible={showRadiusModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowRadiusModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.radiusModalContainer}>
+            <Text style={styles.radiusModalTitle}>Select Search Radius</Text>
+            <Text style={styles.radiusModalSubtext}>Choose how far to search for nearby orders</Text>
+            
+            <View style={styles.radiusOptionsContainer}>
+              {RADIUS_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.radiusOption,
+                    selectedRadius === option.value && styles.radiusOptionSelected
+                  ]}
+                  onPress={() => handleRadiusChange(option.value)}
+                >
+                  <Text style={[
+                    styles.radiusOptionText,
+                    selectedRadius === option.value && styles.radiusOptionTextSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity 
+              style={styles.modalCloseButton}
+              onPress={() => setShowRadiusModal(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -627,6 +1051,24 @@ const styles = StyleSheet.create({
   },
   refreshIconSpinning: {
     opacity: 0.5,
+  },
+  soundButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  soundEnabled: {
+    backgroundColor: '#10B981',
+  },
+  soundMuted: {
+    backgroundColor: '#EF4444',
   },
   statusButton: {
     flexDirection: 'row',
@@ -962,5 +1404,163 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  // Find Near Order Button Styles
+  findNearButton: {
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  findNearButtonActive: {
+    shadowColor: '#10B981',
+    shadowOpacity: 0.4,
+  },
+  findNearGradient: {
+    padding: 20,
+    minHeight: 100,
+  },
+  findNearContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  findNearIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  waveCircle: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  findNearTextContainer: {
+    flex: 1,
+    marginLeft: 16,
+    marginRight: 12,
+  },
+  findNearTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  findNearSubtext: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    lineHeight: 18,
+  },
+  findNearCount: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginTop: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  radiusButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  radiusButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  // Radius Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  radiusModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  radiusModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  radiusModalSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  radiusOptionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
+  radiusOption: {
+    flex: 1,
+    minWidth: '45%',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  radiusOptionSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+  },
+  radiusOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  radiusOptionTextSelected: {
+    color: '#3B82F6',
+    fontWeight: 'bold',
+  },
+  modalCloseButton: {
+    backgroundColor: '#EF4444',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
