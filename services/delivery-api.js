@@ -155,6 +155,7 @@ export const fetchOrdersByStatus = async (status, token) => {
               ...transformedOrder,
               deliveryFee: extractNumber(order.deliveryFee),
               tip: extractNumber(order.tip),
+              userPhone: order.phoneNumber || order.userPhone || null,
             };
           })
         : [];
@@ -243,6 +244,7 @@ export const fetchAllActiveOrders = async (token) => {
           ...transformedOrder,
           deliveryFee: extractNumber(order.deliveryFee),
           tip: extractNumber(order.tip),
+          userPhone: order.phoneNumber || order.userPhone || null,
         };
       });
       allActiveOrders = [...allActiveOrders, ...normalized];
@@ -256,6 +258,7 @@ export const fetchAllActiveOrders = async (token) => {
           ...transformedOrder,
           deliveryFee: extractNumber(order.deliveryFee),
           tip: extractNumber(order.tip),
+          userPhone: order.phoneNumber || order.userPhone || null,
         };
       });
       allActiveOrders = [...allActiveOrders, ...normalized];

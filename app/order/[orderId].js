@@ -58,7 +58,7 @@ export default function OrderDetailsScreen() {
     if (typeof activeOrder === 'object') return activeOrder;
     return null;
   }, [activeOrder]);
-
+console.log('order', order);
 
 
 

@@ -1041,6 +1041,7 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
               description: response.data?.description || '',
               status: response.data?.status || 'Accepted',
         };
+        
 
         const activeOrderData = {
           orderId,
@@ -1055,6 +1056,7 @@ const fetchAvailableOrders = useCallback(async (forceRefresh = false) => {
           distanceKm: response.data?.distanceKm || 0,
           description: response.data?.description || '',
           status: response.data?.status || 'Accepted',
+          userPhone:response.data?.phoneNumber,
         };
 
         setState((prev) => ({
