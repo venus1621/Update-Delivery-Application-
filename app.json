@@ -34,6 +34,8 @@
     },
     "android": {
       "package": "com.bahran.deliverydriver.app",
+      "targetSdkVersion": 35,
+      "compileSdkVersion": 35,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#667eea"
@@ -76,6 +78,17 @@
         "expo-camera",
         {
           "cameraPermission": "Allow Bahran Delivery to access your camera to scan QR codes."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.facebook.react.** { *; }",
+            "useLegacyPackaging": false
+          }
         }
       ]
     ],
