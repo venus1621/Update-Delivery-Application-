@@ -11,6 +11,18 @@ By using the Bahiran Delivery Driver App, you agree to the collection and use of
 
 ---
 
+## Important Notice About Tracking
+
+**We DO NOT track you for advertising purposes.** This app does not:
+- ❌ Track your activity across other apps or websites for advertising
+- ❌ Share your data with advertising networks or data brokers
+- ❌ Use your location for targeted advertising
+- ❌ Link your data with third-party advertising systems
+
+**What we DO:** We collect location data solely for delivery app functionality - navigation, order management, customer tracking features, and earnings calculation. Your data stays within our delivery service ecosystem.
+
+---
+
 ## 1. Information We Collect
 
 ### 1.1 Personal Information
@@ -34,7 +46,7 @@ We collect the following personal information when you register and use our app:
   - Verification documents
 
 ### 1.2 Location Data
-We collect precise location information to enable delivery services:
+We collect precise location information **solely for delivery app functionality** - NOT for advertising or tracking purposes:
 
 - **Foreground Location:** When you're actively using the app to navigate to delivery locations
 - **Background Location:** Continuous tracking when you're online and have active deliveries to:
@@ -46,8 +58,10 @@ We collect precise location information to enable delivery services:
 **Location Usage:**
 - Updates every 5 seconds or 50 meters
 - Used for navigation, order tracking, and distance calculation
-- Shared with customers when they track their orders
-- Stored for delivery history and analytics
+- Shared with customers ONLY when they track their orders
+- Stored for delivery history and service improvement
+- **NOT used for advertising, marketing, or third-party tracking**
+- **NOT shared with advertising networks or data brokers**
 
 ### 1.3 Camera and Media
 - **Camera Access:** Used exclusively for scanning QR codes for order verification
@@ -119,10 +133,17 @@ We use the collected information for the following purposes:
 - Estimated arrival time at pickup location
 
 ### 3.3 With Service Providers
+We share data ONLY with service providers necessary for app functionality:
 - **Payment Processors:** For processing withdrawals (CBEBirr, Telebirr, etc.)
 - **Cloud Services:** AWS/Google Cloud for data storage
 - **Map Services:** Google Maps for navigation
-- **Analytics Services:** For app performance monitoring
+- **Analytics Services:** For app performance monitoring (NOT advertising)
+
+**We DO NOT share data with:**
+- ❌ Advertising networks
+- ❌ Data brokers
+- ❌ Marketing platforms
+- ❌ Third-party advertisers
 
 ### 3.4 Legal Requirements
 We may disclose your information if required by law or in response to:
@@ -251,20 +272,53 @@ The "Last Updated" date at the top indicates when the policy was last revised.
 
 ---
 
-## 11. Cookie Policy
+## 11. Cookie Policy and Tracking
 
-Our mobile app does not use cookies. However, we use similar technologies:
+Our mobile app does not use cookies or tracking technologies for advertising purposes.
+
+**What we use:**
 - **Local Storage:** For app preferences and settings
 - **Session Tokens:** For maintaining your logged-in state
-- **Analytics Identifiers:** For tracking app usage (anonymized)
+- **Device Identifiers:** Only for push notifications and app functionality
+- **Analytics:** Only for improving app features (NOT for advertising attribution)
+
+**What we DON'T use:**
+- ❌ Advertising tracking cookies
+- ❌ Cross-site tracking pixels
+- ❌ Third-party advertising SDKs
+- ❌ Data broker integrations
+- ❌ Advertising attribution networks
 
 ---
 
-## 12. Your Rights Under Data Protection Laws
+## 12. App Tracking Transparency (ATT)
+
+**Important:** This app does NOT require App Tracking Transparency permission because we do not track users for advertising purposes.
+
+**What Apple defines as "tracking":**
+> "Tracking refers to linking data collected from your app with third-party data for advertising purposes, or sharing the collected data with data brokers."
+
+**Why we DON'T require ATT:**
+- ✅ We collect location for delivery functionality, not advertising
+- ✅ We don't link your data with third-party advertising networks
+- ✅ We don't share data with data brokers
+- ✅ We don't use advertising attribution SDKs
+- ✅ We don't track you across other apps or websites
+
+**What we DO collect:**
+- Location: For navigation, order management, and customer tracking features
+- User data: For account management and payment processing
+- All data collection is for app functionality, not advertising
+
+If you see any App Tracking Transparency permission request in our app, please contact us immediately as this would be an error.
+
+---
+
+## 13. Your Rights Under Data Protection Laws
 
 Depending on your location, you may have additional rights under data protection laws:
 
-### 12.1 GDPR Rights (EU Users)
+### 13.1 GDPR Rights (EU Users)
 - Right to access your data
 - Right to rectification of inaccurate data
 - Right to erasure ("right to be forgotten")
@@ -272,12 +326,12 @@ Depending on your location, you may have additional rights under data protection
 - Right to data portability
 - Right to object to processing
 
-### 12.2 Ethiopian Data Protection
+### 13.2 Ethiopian Data Protection
 We comply with all applicable Ethiopian data protection regulations and standards.
 
 ---
 
-## 13. Contact Us
+## 14. Contact Us
 
 If you have questions, concerns, or requests regarding this Privacy Policy or your personal data, please contact us:
 
@@ -294,7 +348,7 @@ For data protection inquiries:
 
 ---
 
-## 14. Complaints and Disputes
+## 15. Complaints and Disputes
 
 If you believe your privacy rights have been violated, you may:
 1. Contact our Data Protection Officer directly
@@ -303,7 +357,7 @@ If you believe your privacy rights have been violated, you may:
 
 ---
 
-## 15. Consent
+## 16. Consent
 
 By using the Bahiran Delivery Driver App, you consent to:
 - Collection and use of your information as described in this policy
@@ -318,7 +372,7 @@ You can withdraw consent by:
 
 ---
 
-## 16. Appendix: Data Processing Summary
+## 17. Appendix: Data Processing Summary
 
 | Data Type | Purpose | Retention Period | Sharing |
 |-----------|---------|------------------|---------|
@@ -346,6 +400,7 @@ For Amharic version, please contact support.
 ---
 
 © 2025 Bahiran Delivery. All rights reserved.
+
 
 
 
